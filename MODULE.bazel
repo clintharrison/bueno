@@ -65,8 +65,6 @@ http_archive(
     name = "ace",
     build_file = "//third_party:ace.BUILD.bazel",
     integrity = "sha256-xRVX4w+JVfnE7Xr1LUBm+blT9LeSQHgwrZDXx8rg+4c=",
-    strip_prefix = "ace_headers-017b324e68dd236f85d73d14d273380d3424a016",
-    url = "https://github.com/clintharrison/ace_headers/archive/017b324e68dd236f85d73d14d273380d3424a016.tar.gz",
     patch_cmds = [
         # Code expects to include "ace/xyz.h" but we just have "xyz.h".
         # I think this is just a quirk from Marek's repo?
@@ -75,4 +73,6 @@ http_archive(
         mv *.h ace/
         """,
     ],
+    strip_prefix = "ace_headers-017b324e68dd236f85d73d14d273380d3424a016",
+    url = "https://github.com/clintharrison/ace_headers/archive/017b324e68dd236f85d73d14d273380d3424a016.tar.gz",
 )
