@@ -1,0 +1,9 @@
+device:
+  name: "(?i)8BitDo.*gamepad Keyboard"
+  bind:
+    PageUp:   prev_page
+    PageDown: next_page
+    G:        next_page  # A button
+    J:        next_page  # B button
+    H:        prev_page  # X button
+    I:        prev_page	 # Y button
