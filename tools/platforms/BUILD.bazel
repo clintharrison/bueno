@@ -3,7 +3,6 @@ platform(
     constraint_values = [
         "@platforms//os:linux",
         "@platforms//cpu:armv7",
-        "@rules_go//go/toolchain:cgo_off",
     ],
     visibility = ["//visibility:public"],
 )
