@@ -1,0 +1,12 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "lipc",
+    srcs = [
+        "lipc.go",
+        "util.go",
+    ],
+    importpath = "github.com/clintharrison/bueno/lipc",
+    visibility = ["//visibility:public"],
+    deps = ["@com_github_godbus_dbus_v5//:dbus"],
+)

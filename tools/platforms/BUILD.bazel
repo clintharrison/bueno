@@ -1,0 +1,18 @@
+platform(
+    name = "kindlehf_platform",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:armv7",
+        "@rules_go//go/toolchain:cgo_off",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
+    name = "is_kindlehf",
+    constraint_values = [
+        "@platforms//cpu:armv7",
+        "@platforms//os:linux",
+    ],
+    visibility = ["//visibility:public"],
+)

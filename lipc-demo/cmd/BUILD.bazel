@@ -1,0 +1,26 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_cross_binary", "go_library")
+
+go_library(
+    name = "cmd_lib",
+    srcs = ["lipc-demo.go"],
+    importpath = "github.com/clintharrison/bueno/lipc-demo/cmd",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//lipc",
+        "@com_github_godbus_dbus_v5//:dbus",
+        "@com_github_lmittmann_tint//:tint",
+    ],
+)
+
+go_binary(
+    name = "cmd",
+    embed = [":cmd_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_cross_binary(
+    name = "cmd_kindlehf",
+    platform = "//tools/platforms:kindlef_platform",
+    target = ":cmd",
+    visibility = ["//visibility:public"],
+)
