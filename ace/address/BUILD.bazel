@@ -1,0 +1,8 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "address",
+    srcs = ["address.go"],
+    importpath = "github.com/clintharrison/bueno/ace/address",
+    visibility = ["//visibility:public"],
+)

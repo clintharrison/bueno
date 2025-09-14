@@ -18,6 +18,7 @@ go_deps.from_file(go_mod = "//:go.mod")
 use_repo(
     go_deps,
     "com_github_godbus_dbus_v5",
+    "com_github_google_uuid",
     "com_github_holoplot_go_evdev",
     "com_github_lmittmann_tint",
     "com_github_pilebones_go_udev",
@@ -26,18 +27,15 @@ use_repo(
 
 git_override(
     module_name = "gcc_toolchain",
+    commit = "60704890808323e0d44c199ad6bf56b6509ded46",
     remote = "https://github.com/clintharrison/gcc-toolchain",
-    commit = "00728b08798a1d8775c19e371f10e850b08c9b75",
 )
 
 gcc_toolchains = use_extension("@gcc_toolchain//toolchain:module_extensions.bzl", "gcc_toolchains", dev_dependency = True)
 gcc_toolchains.toolchain(
     name = "gcc_toolchain_kindlehf",
-    target_arch = "armv7",
-    enable_fortran = False,
     binary_prefix = "arm-kindlehf-linux-gnueabihf-",
-    include_prefix = "arm-kindlehf-linux-gnueabihf/",
-    symlink_sysroot_path = "arm-kindlehf-linux-gnueabihf/sysroot",
+    enable_fortran = False,
     gcc_version = "14.2.0",
     # No json.encode() in a MODULE.bazel file :/
     gcc_versions = '''\
@@ -50,6 +48,31 @@ gcc_toolchains.toolchain(
             }
         }
     }''',
+    include_prefix = "arm-kindlehf-linux-gnueabihf/",
+    symlink_sysroot_path = "arm-kindlehf-linux-gnueabihf/sysroot",
+    target_arch = "armv7",
 )
 use_repo(gcc_toolchains, "gcc_toolchain_kindlehf")
-register_toolchains("@gcc_toolchain_kindlehf//:cc_toolchain", dev_dependency = True)
+
+register_toolchains(
+    "@gcc_toolchain_kindlehf//:cc_toolchain",
+    dev_dependency = True,
+)
+
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name = "ace",
+    build_file = "//third_party:ace.BUILD.bazel",
+    integrity = "sha256-xRVX4w+JVfnE7Xr1LUBm+blT9LeSQHgwrZDXx8rg+4c=",
+    strip_prefix = "ace_headers-017b324e68dd236f85d73d14d273380d3424a016",
+    url = "https://github.com/clintharrison/ace_headers/archive/017b324e68dd236f85d73d14d273380d3424a016.tar.gz",
+    patch_cmds = [
+        # Code expects to include "ace/xyz.h" but we just have "xyz.h".
+        # I think this is just a quirk from Marek's repo?
+        """
+        mkdir -p ace
+        mv *.h ace/
+        """,
+    ],
+)

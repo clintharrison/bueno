@@ -1,0 +1,23 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "ace",
+    srcs = [
+        "ace.go",
+        "ace.go.c",
+        "ace.go.h",
+        "ace_status.go",
+        "util.go",
+    ],
+    cdeps = ["@ace//:libace"],
+    cgo = True,
+    clinkopts = ["-lace_bt -lace_osal"],
+    copts = ["-I../include"],
+    importpath = "github.com/clintharrison/bueno/ace",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//ace/address",
+        "//core/withlock",
+        "@com_github_google_uuid//:uuid",
+    ],
+)
