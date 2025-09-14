@@ -1,7 +1,7 @@
 package xkb
 
 /*
-// #cgo pkg-config: x11
+#cgo LDFLAGS: -lX11
 #include <stdlib.h>
 #include <X11/Xlib.h>
 */

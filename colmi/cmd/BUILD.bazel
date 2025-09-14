@@ -1,0 +1,29 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_cross_binary", "go_library")
+
+go_library(
+    name = "cmd_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/clintharrison/bueno/colmi/cmd",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//ace",
+        "//ace/address",
+        "//colmi",
+        "//xkb",
+        "@com_github_lmittmann_tint//:tint",
+    ],
+)
+
+go_binary(
+    name = "cmd",
+    embed = [":cmd_lib"],
+    pure = "off",
+    visibility = ["//visibility:public"],
+)
+
+go_cross_binary(
+    name = "cmd_kindlehf",
+    platform = "//tools/platforms:kindlehf_platform",
+    target = ":cmd",
+    visibility = ["//visibility:public"],
+)

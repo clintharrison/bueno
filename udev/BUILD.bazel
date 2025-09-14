@@ -3,7 +3,7 @@ load("@rules_go//go:def.bzl", "go_library")
 go_library(
     name = "udev",
     srcs = ["udev.go"],
-    importpath = "github.com/clintharrison/bueno/kindle-keymap/udev",
+    importpath = "github.com/clintharrison/bueno/udev",
     visibility = ["//visibility:public"],
     deps = [
         "@com_github_holoplot_go_evdev//:go-evdev",

@@ -5,6 +5,6 @@ go_library(
     srcs = ["xkb.go"],
     cgo = True,
     clinkopts = ["-lX11"],
-    importpath = "github.com/clintharrison/bueno/kindle-keymap/xkb",
+    importpath = "github.com/clintharrison/bueno/xkb",
     visibility = ["//visibility:public"],
 )
