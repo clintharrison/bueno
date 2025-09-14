@@ -12,7 +12,7 @@ go_library(
     cdeps = ["@ace//:libace"],
     cgo = True,
     clinkopts = ["-lace_bt -lace_osal"],
-    copts = ["-I../include"],
+    copts = ["-Iace/include"],
     importpath = "github.com/clintharrison/bueno/ace",
     visibility = ["//visibility:public"],
     deps = [

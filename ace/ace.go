@@ -1,6 +1,6 @@
 package ace
 
-//#cgo CFLAGS: -I../../include
+//#cgo CFLAGS: -Iinclude
 //#cgo LDFLAGS: -lace_bt -lace_osal
 //#include "ace.go.h"
 import "C"
