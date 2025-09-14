@@ -14,6 +14,11 @@ go_library(
     clinkopts = ["-lace_bt -lace_osal"],
     copts = ["-Iace/include"],
     importpath = "github.com/clintharrison/bueno/ace",
+    target_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:armv7",
+        "//tools/platforms:kindle",
+    ],
     visibility = ["//visibility:public"],
     deps = [
         "//ace/address",

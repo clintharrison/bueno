@@ -1,8 +1,20 @@
+constraint_setting(
+    name = "vendor",
+    visibility = ["//visibility:public"],
+)
+
+constraint_value(
+    name = "kindle",
+    constraint_setting = ":vendor",
+    visibility = ["//visibility:public"],
+)
+
 platform(
     name = "kindlehf_platform",
     constraint_values = [
         "@platforms//os:linux",
         "@platforms//cpu:armv7",
+        ":kindle",
     ],
     visibility = ["//visibility:public"],
 )
@@ -12,6 +24,7 @@ config_setting(
     constraint_values = [
         "@platforms//cpu:armv7",
         "@platforms//os:linux",
+        ":kindle",
     ],
     visibility = ["//visibility:public"],
 )

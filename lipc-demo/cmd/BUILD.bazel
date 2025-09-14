@@ -20,7 +20,7 @@ go_binary(
 
 go_cross_binary(
     name = "cmd_kindlehf",
-    platform = "//tools/platforms:kindlef_platform",
+    platform = "//tools/platforms:kindlehf_platform",
     target = ":cmd",
     visibility = ["//visibility:public"],
 )
