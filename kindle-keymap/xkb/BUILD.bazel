@@ -1,0 +1,10 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "xkb",
+    srcs = ["xkb.go"],
+    cgo = True,
+    clinkopts = ["-lX11"],
+    importpath = "github.com/clintharrison/bueno/kindle-keymap/xkb",
+    visibility = ["//visibility:public"],
+)

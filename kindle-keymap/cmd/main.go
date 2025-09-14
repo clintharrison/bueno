@@ -16,8 +16,8 @@ import (
 	"github.com/pilebones/go-udev/netlink"
 
 	"github.com/clintharrison/bueno/kindle-keymap/config"
-	"github.com/clintharrison/bueno/kindle-keymap/udev"
-	"github.com/clintharrison/bueno/kindle-keymap/xkb"
+	"github.com/clintharrison/bueno/udev"
+	"github.com/clintharrison/bueno/xkb"
 )
 
 func must[T any](v T, err error) T {

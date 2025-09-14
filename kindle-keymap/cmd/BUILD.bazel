@@ -1,0 +1,30 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_cross_binary", "go_library")
+
+go_library(
+    name = "cmd_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/clintharrison/bueno/kindle-keymap/cmd",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//kindle-keymap/config",
+        "//udev",
+        "//xkb",
+        "@com_github_holoplot_go_evdev//:go-evdev",
+        "@com_github_lmittmann_tint//:tint",
+        "@com_github_pilebones_go_udev//netlink",
+    ],
+)
+
+go_binary(
+    name = "cmd",
+    embed = [":cmd_lib"],
+    pure = "off",
+    visibility = ["//visibility:public"],
+)
+
+go_cross_binary(
+    name = "cmd_kindlehf",
+    platform = "//tools/platforms:kindlehf_platform",
+    target = ":cmd",
+    visibility = ["//visibility:public"],
+)
