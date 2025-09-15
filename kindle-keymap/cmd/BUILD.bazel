@@ -6,11 +6,11 @@ go_library(
     importpath = "github.com/clintharrison/bueno/kindle-keymap/cmd",
     visibility = ["//visibility:private"],
     deps = [
+        "//core/log",
         "//kindle-keymap/config",
         "//udev",
         "//xkb",
         "@com_github_holoplot_go_evdev//:go-evdev",
-        "@com_github_lmittmann_tint//:tint",
         "@com_github_pilebones_go_udev//netlink",
     ],
 )

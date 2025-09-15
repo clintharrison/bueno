@@ -6,9 +6,9 @@ go_library(
     importpath = "github.com/clintharrison/bueno/lipc-demo/cmd",
     visibility = ["//visibility:private"],
     deps = [
+        "//core/log",
         "//lipc",
         "@com_github_godbus_dbus_v5//:dbus",
-        "@com_github_lmittmann_tint//:tint",
     ],
 )
 

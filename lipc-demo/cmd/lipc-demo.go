@@ -6,35 +6,18 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
+	"github.com/clintharrison/bueno/core/log"
 	"github.com/clintharrison/bueno/lipc"
 	"github.com/godbus/dbus/v5"
-	"github.com/lmittmann/tint"
 )
-
-// configureLogger sets up the default structured logger to use tint on stderr
-func configureLogger() {
-	w := os.Stderr
-
-	defaultLevel := slog.LevelInfo
-	if os.Getenv("DEBUG") == "1" {
-		defaultLevel = slog.LevelDebug
-	}
-	slog.SetDefault(slog.New(
-		tint.NewHandler(w, &tint.Options{
-			Level:      defaultLevel,
-			TimeFormat: time.TimeOnly,
-		}),
-	))
-}
 
 func main() {
 	ctx := context.Background()
 	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	configureLogger()
+	log.ConfigureInteractiveLogger()
 
 	conn, err := dbus.ConnectSystemBus()
 	if err != nil {

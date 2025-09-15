@@ -9,39 +9,15 @@ import (
 	"os/signal"
 	"regexp"
 	"syscall"
-	"time"
 
 	"github.com/holoplot/go-evdev"
-	"github.com/lmittmann/tint"
 	"github.com/pilebones/go-udev/netlink"
 
+	"github.com/clintharrison/bueno/core/log"
 	"github.com/clintharrison/bueno/kindle-keymap/config"
 	"github.com/clintharrison/bueno/udev"
 	"github.com/clintharrison/bueno/xkb"
 )
-
-func must[T any](v T, err error) T {
-	if err != nil {
-		panic(err)
-	}
-	return v
-}
-
-// configureLogger sets up the default structured logger to use tint on stderr
-func configureLogger() {
-	w := os.Stderr
-
-	defaultLevel := slog.LevelInfo
-	if os.Getenv("DEBUG") == "1" {
-		defaultLevel = slog.LevelDebug
-	}
-	slog.SetDefault(slog.New(
-		tint.NewHandler(w, &tint.Options{
-			Level:      defaultLevel,
-			TimeFormat: time.TimeOnly,
-		}),
-	))
-}
 
 func findExistingDevice(pattern *regexp.Regexp) (*evdev.InputDevice, error) {
 	devicePaths, err := evdev.ListDevicePaths()
@@ -74,7 +50,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	configureLogger()
+	log.ConfigureInteractiveLogger()
 
 	x11, err := xkb.Open()
 	if err != nil {
@@ -83,7 +59,11 @@ func main() {
 	}
 	defer x11.Close()
 
-	cfg := must(config.Load())
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("config.Load()", "error", err)
+		os.Exit(1)
+	}
 
 	// here we set up a udev watcher to look for _new_ input devices matching the given pattern
 	// we also check any existing devices, and start watching them too
@@ -98,7 +78,7 @@ func main() {
 		},
 		// TODO: consider proactively removing watches on devices that are removed?
 		// It's likely their goroutines are already in a blocking read though, so there's
-		// not a ton we can do there.
+		// not a ton we can do there. Once that errors, the goroutine will exit anyway.
 		RemoveFunc: func(uevent netlink.UEvent) {
 			subsystem := uevent.Env["SUBSYSTEM"]
 			devname := uevent.Env["DEVNAME"]
@@ -124,6 +104,7 @@ func main() {
 	}()
 
 	// now we wait for devices to show up, and then watch their events in a separate goroutine
+	// (a device may "show up" from the existing devices check above, or from udev)
 	for {
 		slog.Debug("waiting for device...")
 		select {
