@@ -1,0 +1,12 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "lipcaction",
+    srcs = ["lipcaction.go"],
+    importpath = "github.com/clintharrison/bueno/kindle-keymap/lipcaction",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//lipc",
+        "@com_github_godbus_dbus_v5//:dbus",
+    ],
+)

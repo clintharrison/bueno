@@ -9,14 +9,25 @@ import (
 	"os/signal"
 	"regexp"
 	"syscall"
+	"time"
 
 	"github.com/holoplot/go-evdev"
 	"github.com/pilebones/go-udev/netlink"
 
 	"github.com/clintharrison/bueno/core/log"
 	"github.com/clintharrison/bueno/kindle-keymap/config"
+	"github.com/clintharrison/bueno/kindle-keymap/lipcaction"
 	"github.com/clintharrison/bueno/udev"
 	"github.com/clintharrison/bueno/xkb"
+)
+
+const (
+	ActionNextPage       string = "next_page"
+	ActionPrevPage       string = "prev_page"
+	ActionBrightnessUp   string = "brightness_up"
+	ActionBrightnessDown string = "brightness_down"
+	ActionWarmthUp       string = "warmth_up"
+	ActionWarmthDown     string = "warmth_down"
 )
 
 func findExistingDevice(pattern *regexp.Regexp) (*evdev.InputDevice, error) {
@@ -103,6 +114,16 @@ func main() {
 		}
 	}()
 
+	client, err := lipcaction.NewLipcClient()
+	if err != nil {
+		slog.Error("lipcaction.NewLipcClient()", "error", err)
+		os.Exit(1)
+	}
+	// defer client.Close()
+	brightness := lipcaction.NewBrightnessAction(client)
+
+	w := watcher{x11, cfg, brightness}
+
 	// now we wait for devices to show up, and then watch their events in a separate goroutine
 	// (a device may "show up" from the existing devices check above, or from udev)
 	for {
@@ -113,12 +134,20 @@ func main() {
 			return
 		case dev := <-deviceCh:
 			slog.Debug("got new device")
-			go watchDevice(ctx, dev, x11, cfg)
+			go w.watch(ctx, dev)
 		}
 	}
 }
 
-func watchDevice(ctx context.Context, dev *evdev.InputDevice, x11 *xkb.X11, cfg *config.Config) {
+type watcher struct {
+	x11        *xkb.X11
+	cfg        *config.Config
+	brightness *lipcaction.BrightnessAction
+}
+
+const eventHandlerTimeout = 5 * time.Second
+
+func (w *watcher) watch(ctx context.Context, dev *evdev.InputDevice) {
 	defer dev.Close()
 	devName, _ := dev.Name()
 	slog.Info("watching device for key events", "devname", devName, "path", dev.Path())
@@ -139,27 +168,45 @@ func watchDevice(ctx context.Context, dev *evdev.InputDevice, x11 *xkb.X11, cfg 
 				slog.Error("unexpected read error on device, stopping watch", "devname", devName, "path", dev.Path(), "error", err)
 				return
 			}
-			handleEvent(ev, x11, cfg)
+			eventCtx, cancel := context.WithTimeout(ctx, eventHandlerTimeout)
+			defer cancel()
+			w.handleEvent(eventCtx, ev)
 		}
 	}
 }
 
-func handleEvent(ev *evdev.InputEvent, x11 *xkb.X11, cfg *config.Config) {
+func (w *watcher) handleEvent(ctx context.Context, ev *evdev.InputEvent) {
 	if ev == nil {
 		return
 	}
 	if ev.Type == evdev.EV_KEY && ev.Value == 1 { // Key press event
 		keyName := evdev.CodeName(ev.Type, ev.Code)
-		mappedAction := cfg.BindingForKey(keyName)
+		mappedAction := w.cfg.BindingForKey(keyName)
 		if mappedAction == "" {
 			mappedAction = "<unmapped>"
 		}
 		slog.Info("key pressed", "code", ev.Code, "name", keyName, "mapped_action", mappedAction)
 		switch mappedAction {
-		case "next_page":
-			x11.KeyPress(xkb.XKPageDown)
-		case "prev_page":
-			x11.KeyPress(xkb.XKPageUp)
+		case ActionNextPage:
+			w.x11.KeyPress(xkb.XKPageDown)
+		case ActionPrevPage:
+			w.x11.KeyPress(xkb.XKPageUp)
+		case ActionBrightnessUp:
+			if err := w.brightness.IncreaseBrightness(ctx); err != nil {
+				slog.Error("IncreaseBrightness()", "error", err)
+			}
+		case ActionBrightnessDown:
+			if err := w.brightness.DecreaseBrightness(ctx); err != nil {
+				slog.Error("DecreaseBrightness()", "error", err)
+			}
+		case ActionWarmthUp:
+			if err := w.brightness.IncreaseWarmth(ctx); err != nil {
+				slog.Error("IncreaseWarmth()", "error", err)
+			}
+		case ActionWarmthDown:
+			if err := w.brightness.DecreaseWarmth(ctx); err != nil {
+				slog.Error("DecreaseWarmth()", "error", err)
+			}
 		default:
 			// ignore unmapped keys
 		}

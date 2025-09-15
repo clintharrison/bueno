@@ -7,3 +7,14 @@ device:
     J:        next_page  # B button
     H:        prev_page  # X button
     I:        prev_page	 # Y button
+    # D pad
+    C: prev_page # Up
+    D: next_page # Down
+    E: prev_page # Left
+    F: next_page # Right
+
+    N: brightness_down # minus
+    O: brightness_up # plus
+
+    L: warmth_down # L2
+    R: warmth_up # R2

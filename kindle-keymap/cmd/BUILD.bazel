@@ -8,6 +8,7 @@ go_library(
     deps = [
         "//core/log",
         "//kindle-keymap/config",
+        "//kindle-keymap/lipcaction",
         "//udev",
         "//xkb",
         "@com_github_holoplot_go_evdev//:go-evdev",
