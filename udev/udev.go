@@ -66,12 +66,13 @@ func (w *InputDeviceWatcher) Start(ctx context.Context) {
 
 func pollForDevice(path string) (*evdev.InputDevice, error) {
 	timeout := time.After(5 * time.Second)
-	tick := time.Tick(100 * time.Millisecond)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-timeout:
 			return nil, fmt.Errorf("timed out waiting for device at %s", path)
-		case <-tick:
+		case <-ticker.C:
 			dev, err := evdev.Open(path)
 			if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
 				continue
