@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	BLUETOOTH_UID = 1003
-	BLUETOOTH_GID = 1003
+	BluetoothUID = 1003
+	BluetoothGID = 1003
 )
 
 func must[T any](v T, err error) T {
@@ -35,13 +35,13 @@ func must[T any](v T, err error) T {
 // ACE will not allow the process to run as root.
 func dropPrivileges() {
 	if os.Geteuid() == 0 {
-		err := syscall.Setgid(BLUETOOTH_GID)
+		err := syscall.Setgid(BluetoothGID)
 		if err != nil {
 			slog.Error("Failed to set GID", "error", err)
 			os.Exit(1)
 		}
 
-		err = syscall.Setuid(BLUETOOTH_UID)
+		err = syscall.Setuid(BluetoothUID)
 		if err != nil {
 			slog.Error("Failed to set UID", "error", err)
 			os.Exit(1)
@@ -196,9 +196,9 @@ func connectAndFindCharacteristics(_ context.Context, adapter ace.Adapter, addr 
 		chars, _ := adapter.GetCharacteristics(&svc)
 		for _, char := range chars {
 			switch char.UUID {
-			case colmi.R02_COMMANDS_READ_UUID:
+			case colmi.CommandReadUUID:
 				commandReadChr = &char
-			case colmi.R02_COMMANDS_WRITE_UUID:
+			case colmi.CommandWriteUUID:
 				commandWriteChr = &char
 			}
 		}
@@ -225,7 +225,7 @@ func enableGestures(ctx context.Context, cr ConnectResult, f func(data []byte)) 
 	}()
 
 	// Turn on the "camera" gesture -- this causes a "ACTION_TAKE_PHOTO" notification on a hand shake or something.
-	enablePacket, _ := colmi.MakeCameraPacket(colmi.ACTION_ENABLE_CAMERA_GESTURE)
+	enablePacket, _ := colmi.MakeCameraPacket(colmi.ActionEnableCameraGesture)
 	err = cr.writeChar.Write(cr.conn, enablePacket)
 	if err != nil {
 		return err
@@ -247,7 +247,7 @@ func enableGestures(ctx context.Context, cr ConnectResult, f func(data []byte)) 
 		slog.Info("10 seconds passed")
 	}
 
-	disablePacket, _ := colmi.MakeCameraPacket(colmi.ACTION_DISABLE_CAMERA_GESTURE)
+	disablePacket, _ := colmi.MakeCameraPacket(colmi.ActionDisableCameraGesture)
 	err = cr.writeChar.Write(cr.conn, disablePacket)
 	if err != nil {
 		return err
