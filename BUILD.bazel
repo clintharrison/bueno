@@ -1,5 +1,5 @@
 load("@gazelle//:def.bzl", "gazelle")
-load("@rules_go//go:def.bzl", "nogo")
+load("@io_bazel_rules_go//go:def.bzl", "nogo")
 
 gazelle(name = "gazelle")
 
