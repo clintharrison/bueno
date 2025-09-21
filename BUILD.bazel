@@ -1,3 +1,4 @@
+load("@com_github_sluongng_nogo_analyzer//staticcheck:def.bzl", "ANALYZERS", "staticcheck_analyzers")
 load("@gazelle//:def.bzl", "gazelle")
 load("@io_bazel_rules_go//go:def.bzl", "nogo")
 
@@ -7,5 +8,5 @@ nogo(
     name = "nogo",
     vet = True,
     visibility = ["//visibility:public"],
-    deps = [],
+    deps = staticcheck_analyzers(ANALYZERS),
 )

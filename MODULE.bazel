@@ -17,12 +17,16 @@ go_deps = use_extension("@gazelle//:extensions.bzl", "go_deps")
 go_deps.from_file(go_mod = "//:go.mod")
 use_repo(
     go_deps,
+    "co_honnef_go_tools",
     "com_github_godbus_dbus_v5",
     "com_github_google_uuid",
     "com_github_holoplot_go_evdev",
     "com_github_lmittmann_tint",
+    "com_github_nishanths_exhaustive",
     "com_github_pilebones_go_udev",
+    "com_github_sluongng_nogo_analyzer_staticcheck",
     "in_gopkg_yaml_v3",
+    "org_golang_x_tools",
 )
 
 git_override(
@@ -75,4 +79,14 @@ http_archive(
     ],
     strip_prefix = "ace_headers-017b324e68dd236f85d73d14d273380d3424a016",
     url = "https://github.com/clintharrison/ace_headers/archive/017b324e68dd236f85d73d14d273380d3424a016.tar.gz",
+)
+
+# There are some convenience rules in this repo for staticcheck analyzers with nogo,
+# but it doesn't use bzlmod and all its Go deps are brought in manually through tools/nogo/deps.go.
+# https://github.com/sluongng/nogo-analyzer/issues/40
+http_archive(
+    name = "com_github_sluongng_nogo_analyzer",
+    integrity = "sha256-nNQ+uI9zwFRR+urifUx3NsOW+k4d+2rqqWSeod9UNuo=",
+    strip_prefix = "nogo-analyzer-fc5266f408ed9956e560cce4b988fdbb9b887200",
+    url = "https://github.com/sluongng/nogo-analyzer/archive/fc5266f408ed9956e560cce4b988fdbb9b887200.tar.gz",
 )
