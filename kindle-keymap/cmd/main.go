@@ -119,7 +119,7 @@ func main() {
 		slog.Error("lipcaction.NewLipcClient()", "error", err)
 		os.Exit(1)
 	}
-	// defer client.Close()
+	defer client.Close()
 	brightness := lipcaction.NewBrightnessAction(client)
 
 	w := watcher{x11, cfg, brightness}
