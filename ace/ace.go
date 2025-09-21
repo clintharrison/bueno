@@ -1,3 +1,4 @@
+// Package ace contains CGo bindings and a higher-level Go wrapper for the ACE Bluetooth library.
 package ace
 
 //#cgo CFLAGS: -Iinclude
@@ -41,7 +42,7 @@ var (
 	connectCh           chan ConnHandle
 	pairCh              chan struct{}
 	gattcSvcDiscoveryCh chan struct{}
-	gattcDbCh           chan struct{}
+	gattcDBCh           chan struct{}
 	gattDisconnectCh    chan struct{}
 	charsWriteCh        chan struct{}
 	bleWriteDescCh      chan struct{}
@@ -70,19 +71,19 @@ type BLEWriteType int
 
 const (
 	_ BLEWriteType = iota
-	BLEWriteType_NoResponse
-	BLEWriteType_Default
-	BLEWriteType_Signed
+	BLEWriteTypeNoResponse
+	BLEWriteTypeDefault
+	BLEWriteTypeSigned
 )
 
 func (s *DeviceService) Characteristics() iter.Seq[DeviceCharacteristic] {
 	return func(yield func(chr DeviceCharacteristic) bool) {
 		for head := s.svc.charsList.stqh_first; head != nil; head = head.link.stqe_next {
-			char_val := head.value
+			charVal := head.value
 			var record C.aceBT_bleGattRecord_t
-			C.cgo_getRecordFromChar(&char_val, &record)
+			C.cgo_getRecordFromChar(&charVal, &record)
 			var desc C.aceBT_bleGattDescriptor_t
-			C.cgo_getDescriptorFromChar(&char_val, &desc)
+			C.cgo_getDescriptorFromChar(&charVal, &desc)
 			// TODO: Follow linked list on characteristic for additional descriptors
 			// slog.Debug("Characteristic",
 			// 	"uuid", UUIDFromGATTCharRecord(&char_val),
@@ -92,7 +93,7 @@ func (s *DeviceService) Characteristics() iter.Seq[DeviceCharacteristic] {
 			// 	"write_type", desc.write_type)
 			writeType := BLEWriteType(desc.write_type)
 			char := DeviceCharacteristic{
-				UUID:      UUIDFromACEUUID_LE(record.uuid),
+				UUID:      UUIDFromACEUUIDLE(record.uuid),
 				Service:   s,
 				IsNotify:  bool(desc.is_notify),
 				isSet:     bool(desc.is_set),
@@ -106,9 +107,9 @@ func (s *DeviceService) Characteristics() iter.Seq[DeviceCharacteristic] {
 	}
 }
 
-func UUIDFromGATTCharRecord(char_rec *C.aceBT_bleGattCharacteristicsValue_t) uuid.UUID {
+func UUIDFromGATTCharRecord(charRec *C.aceBT_bleGattCharacteristicsValue_t) uuid.UUID {
 	ret := make([]byte, 16)
-	C.cgo_getUUIDFromGATTCharRecord(char_rec, (*C.uint8_t)(unsafe.SliceData(ret)))
+	C.cgo_getUUIDFromGATTCharRecord(charRec, (*C.uint8_t)(unsafe.SliceData(ret)))
 	slices.Reverse(ret)
 	return uuid.Must(uuid.FromBytes(ret))
 }
@@ -141,10 +142,10 @@ type AceResponseType int
 
 const (
 	// writeresponse not required
-	BLEWriteTypeResp_No AceResponseType = iota
+	BLEWriteTypeRespNo AceResponseType = iota
 
 	// write response required
-	BLEWriteTypeResp_Required
+	BLEWriteTypeRespRequired
 )
 
 func (dc *DeviceCharacteristic) SetNotify(conn ConnHandle) (chan []byte, error) {
@@ -264,10 +265,10 @@ func (a *aceAdapter) IsBonded(addr address.Address) (bool, error) {
 	return false, nil
 }
 
-func UUIDFromACEUUID_LE(aceUuid C.aceBT_uuid_t) uuid.UUID {
+func UUIDFromACEUUIDLE(aceUUID C.aceBT_uuid_t) uuid.UUID {
 	ret := make([]byte, 16)
 	for i := 0; i < 16; i++ {
-		ret[i] = byte(aceUuid.uu[15-i])
+		ret[i] = byte(aceUUID.uu[15-i])
 	}
 	return uuid.Must(uuid.FromBytes(ret))
 }
@@ -360,8 +361,8 @@ func (a *aceAdapter) Scan(f func(adapter Adapter, device ScanResult)) error {
 		slog.Error("Failed to start scan", "error", err)
 		return err
 	}
-	client_id := (C.aceBT_BeaconClientId)(C.ACE_BEACON_CLIENT_TYPE_MONEYPENNY)
-	aceStatus := C.aceBT_startBeaconScanWithDefaultParams(sessionHandle, client_id, &scanInstanceHandle)
+	clientID := (C.aceBT_BeaconClientId)(C.ACE_BEACON_CLIENT_TYPE_MONEYPENNY)
+	aceStatus := C.aceBT_startBeaconScanWithDefaultParams(sessionHandle, clientID, &scanInstanceHandle)
 	if err := errForStatus(aceStatus); err != nil {
 		slog.Error("Failed to start beacon scan", "status", aceStatus, "error", err)
 		return err
@@ -390,8 +391,8 @@ func (a *aceAdapter) StopScan() error {
 }
 
 func (a *aceAdapter) OpenSession() error {
-	session_type := (C.aceBT_sessionType_t)(C.ACEBT_SESSION_TYPE_DUAL_MODE)
-	status := C.aceBT_openSession(session_type, &C.session_callbacks, &sessionHandle)
+	sessionType := (C.aceBT_sessionType_t)(C.ACEBT_SESSION_TYPE_DUAL_MODE)
+	status := C.aceBT_openSession(sessionType, &C.session_callbacks, &sessionHandle)
 	if err := errForStatus(status); err != nil {
 		slog.Error("Failed to open ACE session", "status", status, "error", err)
 		return err
@@ -564,14 +565,14 @@ func (a *aceAdapter) GetServices(conn ConnHandle) ([]DeviceService, error) {
 
 	dbCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	gattcDbCh = make(chan struct{})
+	gattcDBCh = make(chan struct{})
 	// Actually get the GATT database? Dunno why this is two steps.
 	C.aceBT_bleGetService(conn.conn)
 	select {
 	case <-dbCtx.Done():
 		slog.Error("Timed out waiting for GATT DB")
 		return nil, fmt.Errorf("timed out waiting for GATT DB")
-	case <-gattcDbCh:
+	case <-gattcDBCh:
 		slog.Info("GATT DB populated successfully")
 	}
 
@@ -588,7 +589,7 @@ func (a *aceAdapter) GetServices(conn ConnHandle) ([]DeviceService, error) {
 
 func deviceServiceFromAceService(svc *C.aceBT_bleGattsService_t) DeviceService {
 	return DeviceService{
-		UUID:   UUIDFromACEUUID_LE(svc.uuid),
+		UUID:   UUIDFromACEUUIDLE(svc.uuid),
 		Handle: uint16(svc.handle),
 		svc:    svc,
 	}
@@ -603,8 +604,8 @@ func (a *aceAdapter) DumpGATTDB(conn ConnHandle) error {
 }
 
 //export advChangeCallback
-func advChangeCallback(adv_instance C.aceBT_advInstanceHandle, state C.aceBT_beaconAdvState_t, power_mode C.aceBT_beaconPowerMode_t, beacon_mode C.aceBT_beaconAdvMode_t) {
-	slog.Info("Beacon advertisement state changed", "adv_instance", adv_instance, "state", state, "power_mode", power_mode, "beacon_mode", beacon_mode)
+func advChangeCallback(advInstance C.aceBT_advInstanceHandle, state C.aceBT_beaconAdvState_t, powerMode C.aceBT_beaconPowerMode_t, beaconMode C.aceBT_beaconAdvMode_t) {
+	slog.Info("Beacon advertisement state changed", "adv_instance", advInstance, "state", state, "power_mode", powerMode, "beacon_mode", beaconMode)
 }
 
 //export onBleRegistered
@@ -618,7 +619,7 @@ func onBleRegistered(status C.aceBT_status_t) {
 }
 
 //export scanResultCallback
-func scanResultCallback(scan_instance C.aceBT_scanInstanceHandle, record *C.aceBT_BeaconScanRecord_t) {
+func scanResultCallback(scanInstance C.aceBT_scanInstanceHandle, record *C.aceBT_BeaconScanRecord_t) {
 	scanResultFunc(adapter, ScanResult{
 		record: record,
 		addr:   NewAddressFromAce(record.addr),
@@ -627,7 +628,7 @@ func scanResultCallback(scan_instance C.aceBT_scanInstanceHandle, record *C.aceB
 }
 
 //export scanChangeCallback
-func scanChangeCallback(scan_instance C.aceBT_scanInstanceHandle, state C.aceBT_beaconScanState_t, interval uint32, window uint32) {
+func scanChangeCallback(scanInstance C.aceBT_scanInstanceHandle, state C.aceBT_beaconScanState_t, interval uint32, window uint32) {
 	stateStr := "unknown"
 	switch state {
 	case C.ACEBT_BEACON_SCAN_FAILED:
@@ -655,32 +656,32 @@ func onBeaconClientRegistered(status C.ace_status_t) {
 }
 
 //export onBleConnectionStateChanged
-func onBleConnectionStateChanged(state C.aceBT_bleConnState_t, status C.aceBT_gattStatus_t, conn_handle C.aceBT_bleConnHandle, p_addr *C.aceBT_bdAddr_t) {
+func onBleConnectionStateChanged(state C.aceBT_bleConnState_t, status C.aceBT_gattStatus_t, connHandle C.aceBT_bleConnHandle, addr *C.aceBT_bdAddr_t) {
 	slog.Info("BLE connection state changed",
 		"state", state,
 		"gatt_status", status,
-		"conn_handle", unsafe.Pointer(conn_handle),
-		"address", NewAddressFromAce(*p_addr).ToString(),
+		"conn_handle", unsafe.Pointer(connHandle),
+		"address", NewAddressFromAce(*addr).ToString(),
 	)
 	if status != C.ACEBT_GATT_STATUS_SUCCESS {
 		slog.Error("Failed to connect",
-			"address", NewAddressFromAce(*p_addr).ToString(),
+			"address", NewAddressFromAce(*addr).ToString(),
 			"gatt_status", status,
 			"conn_state", state,
-			"conn_handle", unsafe.Pointer(conn_handle))
+			"conn_handle", unsafe.Pointer(connHandle))
 		return
 	}
 	switch state {
 	case C.ACEBT_BLE_STATE_CONNECTED:
-		slog.Info("Connected to device", "conn_handle", unsafe.Pointer(conn_handle), "connectCh", connectCh)
+		slog.Info("Connected to device", "conn_handle", unsafe.Pointer(connHandle), "connectCh", connectCh)
 		if connectCh != nil {
-			connectCh <- ConnHandle{conn_handle}
+			connectCh <- ConnHandle{connHandle}
 			close(connectCh)
 		} else {
 			slog.Warn("connectCh is nil, cannot close channel")
 		}
 	case C.ACEBT_BLE_STATE_DISCONNECTED:
-		slog.Info("Disconnected from device", "conn_handle", unsafe.Pointer(conn_handle), "channel", gattDisconnectCh)
+		slog.Info("Disconnected from device", "conn_handle", unsafe.Pointer(connHandle), "channel", gattDisconnectCh)
 		if gattDisconnectCh != nil {
 			close(gattDisconnectCh)
 		} else {
@@ -690,11 +691,11 @@ func onBleConnectionStateChanged(state C.aceBT_bleConnState_t, status C.aceBT_ga
 }
 
 //export onBleGattcServiceDiscovered
-func onBleGattcServiceDiscovered(conn_handle C.aceBT_bleConnHandle, status C.ace_status_t) {
+func onBleGattcServiceDiscovered(connHandle C.aceBT_bleConnHandle, status C.ace_status_t) {
 	st := StatusFromCode(status)
 	defer close(gattcSvcDiscoveryCh)
 	slog.Info("GATT service discovered",
-		"conn_handle", unsafe.Pointer(conn_handle),
+		"conn_handle", unsafe.Pointer(connHandle),
 		"status", st,
 	)
 }
@@ -709,16 +710,16 @@ func onAdapterStateChanged(state C.aceBT_state_t) {
 type BondState int
 
 const (
-	BOND_NONE BondState = iota
-	BOND_BONDING
-	BOND_BONDED
+	BondStateNone BondState = iota
+	BondStateBonding
+	BondStateBonded
 )
 
 //export onBondStateChanged
-func onBondStateChanged(status C.aceBT_status_t, p_remote_addr *C.aceBT_bdAddr_t, state C.aceBT_bondState_t) {
+func onBondStateChanged(status C.aceBT_status_t, remoteAddr *C.aceBT_bdAddr_t, state C.aceBT_bondState_t) {
 	var addrStr string
-	if p_remote_addr != nil {
-		addrStr = NewAddressFromAce(*p_remote_addr).ToString()
+	if remoteAddr != nil {
+		addrStr = NewAddressFromAce(*remoteAddr).ToString()
 	} else {
 		addrStr = "<null>"
 	}
@@ -765,20 +766,20 @@ func onBleGattcServiceRegistered(status C.aceBT_status_t) {
 }
 
 //export onBleGattcReadCharacteristics
-func onBleGattcReadCharacteristics(conn_handle C.aceBT_bleConnHandle, chars_value C.aceBT_bleGattCharacteristicsValue_t, status C.aceBT_status_t) {
+func onBleGattcReadCharacteristics(connHandle C.aceBT_bleConnHandle, charsValue C.aceBT_bleGattCharacteristicsValue_t, status C.aceBT_status_t) {
 	slog.Info("onBleGattcReadCharacteristics",
-		"conn_handle", conn_handle,
-		"chars_value", chars_value,
+		"conn_handle", connHandle,
+		"chars_value", charsValue,
 		"status", status,
 	)
 }
 
 //export onBleGattcWriteCharacteristics
-func onBleGattcWriteCharacteristics(conn_handle C.aceBT_bleConnHandle, gatt_characteristics C.aceBT_bleGattCharacteristicsValue_t, status C.aceBT_status_t) {
+func onBleGattcWriteCharacteristics(connHandle C.aceBT_bleConnHandle, gattCharacteristics C.aceBT_bleGattCharacteristicsValue_t, status C.aceBT_status_t) {
 	defer close(charsWriteCh)
 	slog.Info("onBleGattcWriteCharacteristics",
-		"conn_handle", unsafe.Pointer(conn_handle),
-		"gatt_characteristics", gatt_characteristics,
+		"conn_handle", unsafe.Pointer(connHandle),
+		"gatt_characteristics", gattCharacteristics,
 		"status", status,
 	)
 	if status == C.ACEBT_STATUS_SUCCESS {
@@ -789,14 +790,14 @@ func onBleGattcWriteCharacteristics(conn_handle C.aceBT_bleConnHandle, gatt_char
 }
 
 //export onBleGattcNotifyCharacteristics
-func onBleGattcNotifyCharacteristics(conn_handle C.aceBT_bleConnHandle, gatt_characteristics C.aceBT_bleGattCharacteristicsValue_t) {
+func onBleGattcNotifyCharacteristics(connHandle C.aceBT_bleConnHandle, gattCharacteristics C.aceBT_bleGattCharacteristicsValue_t) {
 	slog.Info("onBleGattcNotifyCharacteristics",
-		"conn_handle", conn_handle,
-		"gatt_characteristics", gatt_characteristics,
+		"conn_handle", connHandle,
+		"gatt_characteristics", gattCharacteristics,
 	)
-	rawData := C.getDataFromCharsValue(&gatt_characteristics)
+	rawData := C.getDataFromCharsValue(&gattCharacteristics)
 	if rawData.data == nil || rawData.len == 0 {
-		slog.Warn("Received notification with no data", "conn_handle", unsafe.Pointer(conn_handle))
+		slog.Warn("Received notification with no data", "conn_handle", unsafe.Pointer(connHandle))
 		return
 	}
 	// C.GoBytes makes a copy of the data
@@ -807,45 +808,45 @@ func onBleGattcNotifyCharacteristics(conn_handle C.aceBT_bleConnHandle, gatt_cha
 }
 
 //export onBleGattcWriteDescriptor
-func onBleGattcWriteDescriptor(conn_handle C.aceBT_bleConnHandle, gatt_characteristics C.aceBT_bleGattCharacteristicsValue_t, status C.aceBT_status_t) {
+func onBleGattcWriteDescriptor(connHandle C.aceBT_bleConnHandle, gattCharacteristics C.aceBT_bleGattCharacteristicsValue_t, status C.aceBT_status_t) {
 	defer close(bleWriteDescCh)
 	slog.Info("onBleGattcWriteDescriptor",
-		"conn_handle", conn_handle,
-		"gatt_characteristics", gatt_characteristics,
+		"conn_handle", connHandle,
+		"gatt_characteristics", gattCharacteristics,
 		"status", status,
 	)
 }
 
 //export onBleGattcReadDescriptor
-func onBleGattcReadDescriptor(conn_handle C.aceBT_bleConnHandle, chars_value C.aceBT_bleGattCharacteristicsValue_t, status C.aceBT_status_t) {
+func onBleGattcReadDescriptor(connHandle C.aceBT_bleConnHandle, charsValue C.aceBT_bleGattCharacteristicsValue_t, status C.aceBT_status_t) {
 	slog.Info("onBleGattcReadDescriptor",
-		"conn_handle", conn_handle,
-		"chars_value", chars_value,
+		"conn_handle", connHandle,
+		"chars_value", charsValue,
 		"status", status,
 	)
 }
 
 //export onBleGattcGetGattDb
-func onBleGattcGetGattDb(conn_handle C.aceBT_bleConnHandle, gatt_service *C.aceBT_bleGattsService_t, no_svc C.uint32_t) {
-	defer close(gattcDbCh)
+func onBleGattcGetGattDb(connHandle C.aceBT_bleConnHandle, gattService *C.aceBT_bleGattsService_t, numSvc C.uint32_t) {
+	defer close(gattcDBCh)
 	slog.Info("onBleGattcGetGattDb",
-		"conn_handle", unsafe.Pointer(conn_handle),
-		"gatt_service", unsafe.Pointer(gatt_service),
-		"no_svc", int(no_svc),
-		"sizeof_svc", unsafe.Sizeof(*gatt_service),
+		"conn_handle", unsafe.Pointer(connHandle),
+		"gatt_service", unsafe.Pointer(gattService),
+		"no_svc", int(numSvc),
+		"sizeof_svc", unsafe.Sizeof(*gattService),
 	)
 
-	if gatt_service == nil || no_svc == 0 {
-		slog.Error("Received nil GATT service or no services found", "conn_handle", unsafe.Pointer(conn_handle), "no_svc", no_svc)
+	if gattService == nil || numSvc == 0 {
+		slog.Error("Received nil GATT service or no services found", "conn_handle", unsafe.Pointer(connHandle), "no_svc", numSvc)
 		return
 	}
 
 	var clonedServices *C.aceBT_bleGattsService_t
-	if err := errForStatus(C.aceBT_bleCloneGattService(&clonedServices, gatt_service, C.int(no_svc))); err != nil {
-		slog.Error("Failed to clone GATT service", "conn_handle", unsafe.Pointer(conn_handle), "error", err)
+	if err := errForStatus(C.aceBT_bleCloneGattService(&clonedServices, gattService, C.int(numSvc))); err != nil {
+		slog.Error("Failed to clone GATT service", "conn_handle", unsafe.Pointer(connHandle), "error", err)
 		return
 	}
-	gGattService = unsafe.Slice(clonedServices, no_svc)
+	gGattService = unsafe.Slice(clonedServices, numSvc)
 	for i, svc := range gGattService {
 		svcTypeStr := "unknown"
 		switch svc.serviceType {
@@ -856,17 +857,17 @@ func onBleGattcGetGattDb(conn_handle C.aceBT_bleConnHandle, gatt_service *C.aceB
 		case C.ACEBT_BLE_GATT_SERVICE_TYPE_INCLUDED:
 			svcTypeStr = "included (characteristic)"
 		}
-		slog.Info("Gatt Database", "idx", i, "uuid", UUIDFromACEUUID_LE(svc.uuid), "handle", svc.handle, "type", svcTypeStr)
+		slog.Info("Gatt Database", "idx", i, "uuid", UUIDFromACEUUIDLE(svc.uuid), "handle", svc.handle, "type", svcTypeStr)
 	}
 
 	registerCleanupFunc(func() {
 		if clonedServices != nil {
 			slog.Info("cleaning up gatt service", "gatt_service", unsafe.Pointer(clonedServices))
-			status := C.aceBT_bleCleanupGattService(clonedServices, C.int(no_svc))
+			status := C.aceBT_bleCleanupGattService(clonedServices, C.int(numSvc))
 			if err := errForStatus(status); err != nil {
-				slog.Error("Failed to cleanup GATT service", "conn_handle", unsafe.Pointer(conn_handle), "error", err)
+				slog.Error("Failed to cleanup GATT service", "conn_handle", unsafe.Pointer(connHandle), "error", err)
 			} else {
-				slog.Debug("Cleaned up GATT service", "conn_handle", unsafe.Pointer(conn_handle))
+				slog.Debug("Cleaned up GATT service", "conn_handle", unsafe.Pointer(connHandle))
 			}
 			clonedServices = nil
 		}
@@ -874,18 +875,18 @@ func onBleGattcGetGattDb(conn_handle C.aceBT_bleConnHandle, gatt_service *C.aceB
 }
 
 //export onBleGattcExecuteWrite
-func onBleGattcExecuteWrite(conn_handle C.aceBT_bleConnHandle, status C.aceBT_status_t) {
+func onBleGattcExecuteWrite(connHandle C.aceBT_bleConnHandle, status C.aceBT_status_t) {
 	slog.Info("onBleGattcExecuteWrite",
-		"conn_handle", conn_handle,
+		"conn_handle", connHandle,
 		"status", status,
 	)
 }
 
 //export onSessionStateChanged
-func onSessionStateChanged(session_handle C.aceBT_sessionHandle, state C.aceBT_sessionState_t) {
+func onSessionStateChanged(sessionHandle C.aceBT_sessionHandle, state C.aceBT_sessionState_t) {
 	defer close(initCh)
 	slog.Info("onSessionStateChanged",
-		"session_handle", unsafe.Pointer(session_handle),
+		"session_handle", unsafe.Pointer(sessionHandle),
 		"state", state,
 	)
 }

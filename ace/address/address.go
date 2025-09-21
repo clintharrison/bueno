@@ -1,3 +1,4 @@
+// Package address holds MAC-address functions.
 package address
 
 import (
