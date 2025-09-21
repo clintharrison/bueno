@@ -22,12 +22,18 @@ import (
 )
 
 const (
-	ActionNextPage       string = "next_page"
-	ActionPrevPage       string = "prev_page"
-	ActionBrightnessUp   string = "brightness_up"
-	ActionBrightnessDown string = "brightness_down"
-	ActionWarmthUp       string = "warmth_up"
-	ActionWarmthDown     string = "warmth_down"
+	ActionNextPage        string = "next_page"
+	ActionPrevPage        string = "prev_page"
+	ActionBrightnessUp    string = "brightness_up"
+	ActionBrightnessDown  string = "brightness_down"
+	ActionWarmthUp        string = "warmth_up"
+	ActionWarmthDown      string = "warmth_down"
+	ActionRotateCW        string = "rotate_cw"
+	ActionRotateCCW       string = "rotate_ccw"
+	ActionOrientLockUp    string = "orientation_lock_up"
+	ActionOrientLockDown  string = "orientation_lock_down"
+	ActionOrientLockLeft  string = "orientation_lock_left"
+	ActionOrientLockRight string = "orientation_lock_right"
 )
 
 func findExistingDevice(pattern *regexp.Regexp) (*evdev.InputDevice, error) {
@@ -121,8 +127,9 @@ func main() {
 	}
 	defer client.Close()
 	brightness := lipcaction.NewBrightnessAction(client)
+	rotation := lipcaction.NewRotationAction(client)
 
-	w := watcher{x11, cfg, brightness}
+	w := watcher{x11, cfg, brightness, rotation}
 
 	// now we wait for devices to show up, and then watch their events in a separate goroutine
 	// (a device may "show up" from the existing devices check above, or from udev)
@@ -143,6 +150,7 @@ type watcher struct {
 	x11        *xkb.X11
 	cfg        *config.Config
 	brightness *lipcaction.BrightnessAction
+	rotation   *lipcaction.RotationAction
 }
 
 const eventHandlerTimeout = 5 * time.Second
@@ -206,6 +214,30 @@ func (w *watcher) handleEvent(ctx context.Context, ev *evdev.InputEvent) {
 		case ActionWarmthDown:
 			if err := w.brightness.DecreaseWarmth(ctx); err != nil {
 				slog.Error("DecreaseWarmth()", "error", err)
+			}
+		case ActionRotateCW:
+			if err := w.rotation.Rotate(ctx, lipcaction.RotationClockwise); err != nil {
+				slog.Error("Rotate()", "error", err)
+			}
+		case ActionRotateCCW:
+			if err := w.rotation.Rotate(ctx, lipcaction.RotationCounterclockwise); err != nil {
+				slog.Error("Rotate()", "error", err)
+			}
+		case ActionOrientLockUp:
+			if err := w.rotation.SetOrientationLock(ctx, lipcaction.OrientationPortrait); err != nil {
+				slog.Error("SetOrientationLock()", "error", err)
+			}
+		case ActionOrientLockDown:
+			if err := w.rotation.SetOrientationLock(ctx, lipcaction.OrientationPortraitInverted); err != nil {
+				slog.Error("SetOrientationLock()", "error", err)
+			}
+		case ActionOrientLockLeft:
+			if err := w.rotation.SetOrientationLock(ctx, lipcaction.OrientationLandscapeLeft); err != nil {
+				slog.Error("SetOrientationLock()", "error", err)
+			}
+		case ActionOrientLockRight:
+			if err := w.rotation.SetOrientationLock(ctx, lipcaction.OrientationLandscapeRight); err != nil {
+				slog.Error("SetOrientationLock()", "error", err)
 			}
 		default:
 			// ignore unmapped keys

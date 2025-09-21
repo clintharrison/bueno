@@ -3,6 +3,7 @@ package lipcaction
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/clintharrison/bueno/lipc"
@@ -82,4 +83,109 @@ func (a *BrightnessAction) DecreaseWarmth(ctx context.Context) error {
 
 func (a *BrightnessAction) IncreaseWarmth(ctx context.Context) error {
 	return a.adjust(ctx, "currentAmberLevel", 1)
+}
+
+type RotationAction struct {
+	client *LipcClient
+}
+
+type Orientation string
+
+const (
+	OrientationUnlocked         Orientation = ""
+	OrientationPortrait         Orientation = "U"
+	OrientationPortraitInverted Orientation = "D"
+	OrientationLandscapeLeft    Orientation = "L"
+	OrientationLandscapeRight   Orientation = "R"
+)
+
+func NewRotationAction(client *LipcClient) *RotationAction {
+	return &RotationAction{client: client}
+}
+
+func orientationFromString(s string) (o Orientation, err error) {
+	switch s {
+	case "":
+		o = OrientationUnlocked
+	case "U":
+		o = OrientationPortrait
+	case "D":
+		o = OrientationPortraitInverted
+	case "L":
+		o = OrientationLandscapeLeft
+	case "R":
+		o = OrientationLandscapeRight
+	default:
+		err = errors.New("unknown orientation: " + s)
+	}
+	return
+}
+func (a *RotationAction) GetOrientationLock(ctx context.Context) (Orientation, error) {
+	var err error
+	var o string
+	if o, err = lipc.LipcGetProperty[string](ctx, a.client.conn, "com.lab126.winmgr", "orientationLock"); err != nil {
+		return OrientationUnlocked, err
+	}
+	orientation, err := orientationFromString(o)
+	if err != nil {
+		return OrientationUnlocked, err
+	}
+	return orientation, nil
+}
+
+func (a *RotationAction) SetOrientationLock(ctx context.Context, o Orientation) error {
+	oo := string(o)
+	return lipc.LipcSetProperty(ctx, a.client.conn, "com.lab126.winmgr", "orientationLock", oo)
+}
+
+type RotationDirection bool
+
+const (
+	RotationClockwise        RotationDirection = true
+	RotationCounterclockwise RotationDirection = false
+)
+
+func (a *RotationAction) Rotate(ctx context.Context, direction RotationDirection) error {
+	currentOrientation, err := a.GetOrientationLock(ctx)
+	if err != nil {
+		return err
+	}
+
+	// if it's unknown/unlocked, it's treated as normal portrait
+	// TODO: figure out what this does on a device with accelerometer
+	current := OrientationPortrait
+	if currentOrientation != OrientationUnlocked {
+		current = currentOrientation
+	}
+
+	var nextOrientation Orientation
+	if direction == RotationClockwise {
+		switch current {
+		case OrientationPortrait:
+			nextOrientation = OrientationLandscapeRight
+		case OrientationLandscapeRight:
+			nextOrientation = OrientationPortraitInverted
+		case OrientationPortraitInverted:
+			nextOrientation = OrientationLandscapeLeft
+		case OrientationLandscapeLeft:
+			nextOrientation = OrientationPortrait
+		default:
+			nextOrientation = OrientationPortrait
+		}
+	} else { // counterclockwise
+		switch current {
+		case OrientationPortrait:
+			nextOrientation = OrientationLandscapeLeft
+		case OrientationLandscapeLeft:
+			nextOrientation = OrientationPortraitInverted
+		case OrientationPortraitInverted:
+			nextOrientation = OrientationLandscapeRight
+		case OrientationLandscapeRight:
+			nextOrientation = OrientationPortrait
+		default:
+			nextOrientation = OrientationPortrait
+		}
+	}
+
+	return a.SetOrientationLock(ctx, nextOrientation)
 }
