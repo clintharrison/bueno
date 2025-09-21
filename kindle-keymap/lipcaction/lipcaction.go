@@ -1,3 +1,4 @@
+// Package lipcaction holds key map actions that use LIPC to run.
 package lipcaction
 
 import (

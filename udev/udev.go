@@ -1,3 +1,4 @@
+// Package udev provides a udev-based input device watcher.
 package udev
 
 import (

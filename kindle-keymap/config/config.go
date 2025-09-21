@@ -1,3 +1,4 @@
+// Package config loads the YAML config and provides an API for accessing key mappings.
 package config
 
 import (

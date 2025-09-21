@@ -1,3 +1,5 @@
+// Package lipc provides a cgo-less interface for getting and setting LIPC properties over DBus.
+// Hasharrays are not supported, as they're a more complex interface involving shared memory.
 package lipc
 
 import (
