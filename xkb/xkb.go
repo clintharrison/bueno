@@ -1,3 +1,4 @@
+// Package xkb replicates xdotool's ability to send key events to the active X11 window.
 package xkb
 
 /*
@@ -32,12 +33,12 @@ func onX11Error(display *C.Display, error *C.XErrorEvent) {
 
 func Open() (*X11, error) {
 	x := &X11{}
-	name_cstr := C.XDisplayName(nil)
-	if name_cstr == nil {
+	nameCStr := C.XDisplayName(nil)
+	if nameCStr == nil {
 		return nil, fmt.Errorf("failed to get X display name")
 	}
-	name := C.GoString(name_cstr)
-	slog.Info("opening X display", "name", name, "cstr", *name_cstr)
+	name := C.GoString(nameCStr)
+	slog.Info("opening X display", "name", name, "cstr", *nameCStr)
 
 	x.display = C.XOpenDisplay(nil)
 	if x.display == nil {
@@ -92,11 +93,11 @@ func (x *X11) getActiveWindow() C.Window {
 		slog.Warn("expected 32-bit value in _NET_ACTIVE_WINDOW prop (i.e., actualFormat=32)", "length", len(propData), "actual_format", actualFormat)
 		return 0
 	}
-	activeWindowId := uint32(propData[0]) | (uint32(propData[1]) << 8) | (uint32(propData[2]) << 16) | (uint32(propData[3]) << 24)
+	activeWindowID := uint32(propData[0]) | (uint32(propData[1]) << 8) | (uint32(propData[2]) << 16) | (uint32(propData[3]) << 24)
 	// the data array will be leaked if not freed here
 	C.free(unsafe.Pointer(prop))
-	slog.Debug("got active window", "activeWindowId", activeWindowId, "actualType", actualType, "actualFormat", actualFormat, "nItems", nItems, "bytesAfter", bytesAfter)
-	return C.Window(activeWindowId)
+	slog.Debug("got active window", "activeWindowID", activeWindowID, "actualType", actualType, "actualFormat", actualFormat, "nItems", nItems, "bytesAfter", bytesAfter)
+	return C.Window(activeWindowID)
 }
 
 func (x *X11) KeyPress(keysym XKeysym) error {
