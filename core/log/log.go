@@ -1,3 +1,4 @@
+// Package log contains convenience functions for using log/slog.
 package log
 
 import (
@@ -8,7 +9,7 @@ import (
 	"github.com/lmittmann/tint"
 )
 
-// ConfigureLogger sets up the default structured logger to use tint on stderr
+// ConfigureInteractiveLogger sets up the default structured logger to use tint on stderr
 func ConfigureInteractiveLogger() {
 	w := os.Stderr
 
