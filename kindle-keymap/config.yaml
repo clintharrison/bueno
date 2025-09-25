@@ -1,20 +1,48 @@
 device:
-  name: "(?i)8BitDo.*gamepad Keyboard"
-  bind:
-    PageUp:   prev_page
-    PageDown: next_page
-    G:        next_page  # A button
-    J:        next_page  # B button
-    H:        prev_page  # X button
-    I:        prev_page	 # Y button
-    # D pad
-    C: prev_page # Up
-    D: next_page # Down
-    E: prev_page # Left
-    F: next_page # Right
+  - name: "(?i)^8BitDo.*gamepad Keyboard$"
+    bind:
+      PageUp:   prev_page
+      PageDown: next_page
+      G:        next_page  # A button
+      J:        next_page  # B button
+      H:        prev_page  # X button
+      I:        prev_page  # Y button
 
-    N: brightness_down # minus
-    O: brightness_up # plus
+      # D pad
+      C: rotate_ccw # Up
+      D: rotate_cw # down
 
-    L: warmth_down # L2
-    R: warmth_up # R2
+      #C: orientation_lock_up # Up
+      #D: orientation_lock_down # Down
+      #E: orientation_lock_left # Left
+      #F: orientation_lock_right # Right
+
+      N: brightness_down # minus
+      O: brightness_up # plus
+
+      L: warmth_down # L2
+      R: warmth_up # R2
+
+  - name: "(?i)^8BitDo.*gamepad$"
+    bind:
+      PageUp:   prev_page
+      PageDown: next_page
+      A: next_page
+      B: next_page
+      X: prev_page
+      Y: prev_page
+
+      # D pad
+      C: rotate_ccw # Up
+      D: rotate_cw # down
+
+      #C: orientation_lock_up # Up
+      #D: orientation_lock_down # Down
+      #E: orientation_lock_left # Left
+      #F: orientation_lock_right # Right
+
+      N: brightness_down # minus
+      O: brightness_up # plus
+
+      L: warmth_down # L2
+      R: warmth_up # R2

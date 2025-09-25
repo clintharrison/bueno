@@ -36,16 +36,23 @@ const (
 	ActionOrientLockRight string = "orientation_lock_right"
 )
 
-func findExistingDevice(pattern *regexp.Regexp) (*evdev.InputDevice, error) {
+func findExistingDevice(devices []config.Device) (*evdev.InputDevice, *config.Device, error) {
 	devicePaths, err := evdev.ListDevicePaths()
 	if err != nil {
 		slog.Warn("evdev.ListDevicePaths()", "error", err)
-		return nil, err
+		return nil, nil, err
 	}
 
+	var cfgDev *config.Device
 	devPath := ""
 	for _, d := range devicePaths {
-		if pattern.MatchString(d.Name) {
+		for _, cd := range devices {
+			if cd.NamePattern().MatchString(d.Name) {
+				cfgDev = &cd
+				break
+			}
+		}
+		if cfgDev != nil {
 			slog.Info("found device", "name", d.Name, "path", d.Path)
 			devPath = d.Path
 			break
@@ -54,12 +61,12 @@ func findExistingDevice(pattern *regexp.Regexp) (*evdev.InputDevice, error) {
 	if devPath != "" {
 		dev, err := evdev.Open(devPath)
 		if err != nil {
-			return nil, err
+			return nil, cfgDev, err
 		}
-		return dev, nil
+		return dev, cfgDev, nil
 	}
 
-	return nil, fmt.Errorf("no input device found matching pattern %q", pattern.String())
+	return nil, nil, fmt.Errorf("no input device found matching given patterns")
 }
 
 func main() {
@@ -85,8 +92,12 @@ func main() {
 	// here we set up a udev watcher to look for _new_ input devices matching the given pattern
 	// we also check any existing devices, and start watching them too
 	deviceCh := make(chan *evdev.InputDevice)
+	patterns := make([]*regexp.Regexp, 0, len(cfg.Devices))
+	for _, d := range cfg.Devices {
+		patterns = append(patterns, d.NamePattern())
+	}
 	idw := &udev.InputDeviceWatcher{
-		Pattern: cfg.DeviceNamePattern,
+		Patterns: patterns,
 		AddFunc: func(dev *evdev.InputDevice) {
 			if devName, err := dev.Name(); err == nil {
 				slog.Info("new input device detected", "devname", devName, "path", dev.Path())
@@ -111,11 +122,10 @@ func main() {
 	}
 	go idw.Start(ctx)
 	go func() {
-		if dev, err := findExistingDevice(cfg.DeviceNamePattern); err == nil {
+		if dev, matchedCfg, err := findExistingDevice(cfg.Devices); err == nil {
 			if devName, err := dev.Name(); err == nil {
-				slog.Info("using existing input device", "devname", devName, "path", dev.Path())
+				slog.Info("using existing input device", "devname", devName, "path", dev.Path(), "pattern", matchedCfg.NamePattern().String())
 				deviceCh <- dev
-
 			}
 		}
 	}()
@@ -129,7 +139,7 @@ func main() {
 	brightness := lipcaction.NewBrightnessAction(client)
 	rotation := lipcaction.NewRotationAction(client)
 
-	w := watcher{x11, cfg, brightness, rotation}
+	w := watcher{x11, brightness, rotation}
 
 	// now we wait for devices to show up, and then watch their events in a separate goroutine
 	// (a device may "show up" from the existing devices check above, or from udev)
@@ -141,21 +151,34 @@ func main() {
 			return
 		case dev := <-deviceCh:
 			slog.Debug("got new device")
-			go w.watch(ctx, dev)
+			n, err := dev.Name()
+			if err != nil {
+				// if we got here, presumably the device's name matched.
+				// but it doesn't hurt to check again
+				slog.Error("dev.Name()", "error", err)
+				dev.Close()
+				continue
+			}
+			cfg := cfg.MatchingDevice(n)
+			if cfg == nil {
+				slog.Error("no config found matching device name", "devname", n, "path", dev.Path())
+				dev.Close()
+				continue
+			}
+			go w.watch(ctx, dev, cfg)
 		}
 	}
 }
 
 type watcher struct {
 	x11        *xkb.X11
-	cfg        *config.Config
 	brightness *lipcaction.BrightnessAction
 	rotation   *lipcaction.RotationAction
 }
 
 const eventHandlerTimeout = 5 * time.Second
 
-func (w *watcher) watch(ctx context.Context, dev *evdev.InputDevice) {
+func (w *watcher) watch(ctx context.Context, dev *evdev.InputDevice, cfg *config.Device) {
 	defer dev.Close()
 	devName, _ := dev.Name()
 	slog.Info("watching device for key events", "devname", devName, "path", dev.Path())
@@ -178,18 +201,18 @@ func (w *watcher) watch(ctx context.Context, dev *evdev.InputDevice) {
 			}
 			eventCtx, cancel := context.WithTimeout(ctx, eventHandlerTimeout)
 			defer cancel()
-			w.handleEvent(eventCtx, ev)
+			w.handleEvent(eventCtx, ev, cfg)
 		}
 	}
 }
 
-func (w *watcher) handleEvent(ctx context.Context, ev *evdev.InputEvent) {
+func (w *watcher) handleEvent(ctx context.Context, ev *evdev.InputEvent, cfg *config.Device) {
 	if ev == nil {
 		return
 	}
 	if ev.Type == evdev.EV_KEY && ev.Value == 1 { // Key press event
 		keyName := evdev.CodeName(ev.Type, ev.Code)
-		mappedAction := w.cfg.BindingForKey(keyName)
+		mappedAction := cfg.BindingForKey(keyName)
 		if mappedAction == "" {
 			mappedAction = "<unmapped>"
 		}

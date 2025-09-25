@@ -14,45 +14,65 @@ import (
 
 const configPath = "/mnt/us/kindle-keymap.yaml"
 
-type Device struct {
+type yamlConfig struct {
+	Devices []yamlDevice `yaml:"device"`
+}
+
+type yamlDevice struct {
 	Name string            `yaml:"name"`
 	Bind map[string]string `yaml:"bind"`
 }
 
-type yamlConfig struct {
-	yamlRegex *regexp.Regexp
-	Device    Device `yaml:"device"`
-	// TODO: make this an array and match connecting devices against all of them
+type Device struct {
+	nameRegex *regexp.Regexp
+	bindings  map[string]string
 }
 
-// BindingForKey implements Config.
-func (y *yamlConfig) BindingForKey(key string) string {
-	if val, ok := y.Device.Bind[key]; ok {
-		return val
+func normalizeKeyName(key string) string {
+	key = strings.TrimPrefix(key, "KEY_")
+	key = strings.TrimPrefix(key, "BTN_")
+	key = strings.ToUpper(key)
+	return key
+}
+
+func (d *Device) BindingForKey(keyName string) string {
+	// key may be several names separated by /
+	keys := strings.Split(keyName, "/")
+	nk := make([]string, 0, len(keys))
+	for _, k := range keys {
+		k = normalizeKeyName(k)
+		if k != "" {
+			nk = append(nk, k)
+		}
+	}
+	slog.Debug("looking up binding for key", "keyName", keyName, "keys", nk, "bindings", d.bindings)
+	for _, key := range nk {
+		key = normalizeKeyName(key)
+		slog.Debug("checking for binding for key", "key", key)
+		if val, ok := d.bindings[key]; ok {
+			return val
+		}
 	}
 	return ""
 }
 
-// DeviceName implements Config.
-func (y *yamlConfig) DeviceNamePattern() *regexp.Regexp {
-	if y.yamlRegex == nil {
-		y.yamlRegex = regexp.MustCompile(y.Device.Name)
+func newDevice(name string, bindings map[string]string) (*Device, error) {
+	re, err := regexp.Compile(name)
+	if err != nil {
+		return nil, fmt.Errorf("invalid device name regex %q: %w", name, err)
 	}
-	return y.yamlRegex
+	return &Device{
+		nameRegex: re,
+		bindings:  bindings,
+	}, nil
+}
+
+func (d *Device) NamePattern() *regexp.Regexp {
+	return d.nameRegex
 }
 
 type Config struct {
-	DeviceNamePattern *regexp.Regexp
-	DeviceType        string
-	bindings          map[string]string
-}
-
-func (c *Config) BindingForKey(key string) string {
-	key = strings.TrimPrefix(key, "KEY_")
-	if val, ok := c.bindings[key]; ok {
-		return val
-	}
-	return ""
+	Devices []Device
 }
 
 func Load() (*Config, error) {
@@ -62,45 +82,48 @@ func Load() (*Config, error) {
 	if err == nil {
 		err = yaml.NewDecoder(file).Decode(&yamlCfg)
 		if err == nil {
-			slog.Info("read config from file", "path", configPath, "device_name", yamlCfg.Device.Name, "bindings", yamlCfg.Device.Bind)
+			deviceNames := make([]string, 0, len(yamlCfg.Devices))
+			for _, d := range yamlCfg.Devices {
+				deviceNames = append(deviceNames, d.Name)
+			}
+			slog.Info("read config from file", "path", configPath, "device_names", deviceNames)
 		}
 	}
 	if err != nil {
-		slog.Warn("failed to load config file, using default config", "path", configPath, "error", err)
-		yamlCfg = yamlConfig{
-			Device: Device{
-				Name: "(?i)8BitDo.*gamepad Keyboard",
-				Bind: map[string]string{
-					"PageUp":   "prev_page",
-					"PageDown": "next_page",
-					"G":        "next_page", // A button
-					"J":        "next_page", // B button
-					"H":        "prev_page", // X button
-					"I":        "prev_page", // Y button
-				},
-			},
-		}
-	}
-	defer file.Close()
-	deviceName, err := regexp.Compile(yamlCfg.Device.Name)
-	if err != nil {
+		slog.Error("failed to load config file", "path", configPath, "error", err)
 		return nil, err
 	}
-	bindings := make(map[string]string, len(yamlCfg.Device.Bind))
-	for k, v := range yamlCfg.Device.Bind {
-		key := strings.TrimPrefix(k, "KEY_")
-		key = strings.ToUpper(key)
-		if _, exists := bindings[key]; exists {
-			return nil, fmt.Errorf("duplicate binding for key %q", key)
+	defer file.Close()
+	devices := make([]Device, 0, len(yamlCfg.Devices))
+	for _, d := range yamlCfg.Devices {
+		bindings := make(map[string]string, len(d.Bind))
+		for k, v := range d.Bind {
+			// TODO: validate these keys exist on this device?
+
+			// Hopefully you don't have KEY_B and BTN_B on the same device :)
+			key := normalizeKeyName(k)
+			if _, exists := bindings[key]; exists {
+				return nil, fmt.Errorf("duplicate binding for key %q", key)
+			}
+			bindings[key] = v
 		}
-		if key == "" {
-			return nil, fmt.Errorf("invalid key name %q", k)
+		dev, err := newDevice(d.Name, bindings)
+		if err != nil {
+			return nil, err
 		}
-		bindings[key] = v
+		devices = append(devices, *dev)
 	}
 	cfg := Config{
-		DeviceNamePattern: deviceName,
-		bindings:          bindings,
+		Devices: devices,
 	}
 	return &cfg, nil
+}
+
+func (c *Config) MatchingDevice(devName string) *Device {
+	for _, d := range c.Devices {
+		if d.NamePattern().MatchString(devName) {
+			return &d
+		}
+	}
+	return nil
 }

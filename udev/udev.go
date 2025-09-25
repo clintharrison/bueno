@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"regexp"
+	"slices"
 	"time"
 
 	"github.com/holoplot/go-evdev"
@@ -15,7 +16,7 @@ import (
 )
 
 type InputDeviceWatcher struct {
-	Pattern    *regexp.Regexp
+	Patterns   []*regexp.Regexp
 	AddFunc    func(dev *evdev.InputDevice)
 	RemoveFunc func(uevent netlink.UEvent)
 }
@@ -92,7 +93,7 @@ func (w *InputDeviceWatcher) handleEvent(uevent netlink.UEvent) {
 		// for k, v := range uevent.Env {
 		// 	slog.Debug("  env", "key", k, "value", v)
 		// }
-		// add events need to first be filtered by name pattern
+		// add events need to first be filtered by name patterns
 		devname := uevent.Env["DEVNAME"]
 		if devname == "" {
 			slog.Debug("ignoring event with no DEVNAME")
@@ -109,10 +110,13 @@ func (w *InputDeviceWatcher) handleEvent(uevent netlink.UEvent) {
 			return
 		}
 
-		if w.Pattern != nil {
+		if len(w.Patterns) > 0 {
 			if name, err := dev.Name(); err == nil {
-				if !w.Pattern.MatchString(name) {
-					slog.Debug("ignoring device not matching pattern", "devname", name, "path", dev.Path())
+				matched := slices.ContainsFunc(w.Patterns, func(pattern *regexp.Regexp) bool {
+					return pattern.MatchString(name)
+				})
+				if !matched {
+					slog.Debug("ignoring device not matching patterns", "devname", name, "path", dev.Path())
 					dev.Close()
 					return
 				}
@@ -122,7 +126,7 @@ func (w *InputDeviceWatcher) handleEvent(uevent netlink.UEvent) {
 				return
 			}
 		}
-		// If we get here, we have a device that matches our pattern (or we have no pattern)
+		// If we get here, we have a device that matches our patterns (or we have no patterns)
 		w.AddFunc(dev)
 	case "remove":
 		w.RemoveFunc(uevent)
