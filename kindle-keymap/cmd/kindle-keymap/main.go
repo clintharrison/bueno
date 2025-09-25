@@ -183,6 +183,11 @@ func (w *watcher) watch(ctx context.Context, dev *evdev.InputDevice, cfg *config
 	devName, _ := dev.Name()
 	slog.Info("watching device for key events", "devname", devName, "path", dev.Path())
 
+	absInfos, err := dev.AbsInfos()
+	if err != nil {
+		slog.Warn("dev.AbsInfos() failed", "devname", devName, "path", dev.Path(), "error", err)
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -201,17 +206,77 @@ func (w *watcher) watch(ctx context.Context, dev *evdev.InputDevice, cfg *config
 			}
 			eventCtx, cancel := context.WithTimeout(ctx, eventHandlerTimeout)
 			defer cancel()
-			w.handleEvent(eventCtx, ev, cfg)
+			w.handleEvent(eventCtx, ev, cfg, absInfos)
 		}
 	}
 }
 
-func (w *watcher) handleEvent(ctx context.Context, ev *evdev.InputEvent, cfg *config.Device) {
+func syntheticKeyEventForAbsEvent(ev *evdev.InputEvent, absInfos map[evdev.EvCode]evdev.AbsInfo) (*evdev.InputEvent, error) {
+	if ev == nil || ev.Type != evdev.EV_ABS || absInfos == nil {
+		return nil, nil
+	}
+	absInfo, ok := absInfos[ev.Code]
+	if !ok {
+		return nil, nil
+	}
+	if absInfo.Minimum == 0 && absInfo.Maximum == 0 {
+		// this axis doesn't have a range, so we can't interpret it
+		return nil, nil
+	}
+
+	newEvent := &evdev.InputEvent{
+		Time: ev.Time,
+		Type: evdev.EV_KEY,
+		// treat it as a key press, since we don't get key release events for ABS
+		Value: 1,
+		Code:  0,
+	}
+	// D-pad on 8bitdo shows ABS_X 127 at rest, 0 when left pressed, 255 when right pressed
+	// and ABS_Y 127 at rest, 0 when up pressed, 255 when down pressed
+	// Since we only get events when the value changes, we
+	switch ev.Code {
+	case evdev.ABS_X:
+		switch ev.Value {
+		case absInfo.Minimum:
+			newEvent.Code = evdev.BTN_DPAD_LEFT
+		case absInfo.Maximum:
+			newEvent.Code = evdev.BTN_DPAD_RIGHT
+		}
+	case evdev.ABS_Y:
+		switch ev.Value {
+		case absInfo.Minimum:
+			newEvent.Code = evdev.BTN_DPAD_UP
+		case absInfo.Maximum:
+			newEvent.Code = evdev.BTN_DPAD_DOWN
+		}
+	}
+
+	if newEvent.Code != 0 {
+		return newEvent, nil
+	}
+
+	// if we didn't remap the event, that's not an error
+	return nil, nil
+}
+
+func (w *watcher) handleEvent(ctx context.Context, ev *evdev.InputEvent, cfg *config.Device, absInfos map[evdev.EvCode]evdev.AbsInfo) {
+	// TODO: handle watcher vs device vs event state better
 	if ev == nil {
 		return
 	}
+
+	// 8bitdo gamepad sends EV_ABS events for the D-pad, so we'll remap those to equivalent KEY_* events
+	// we don't keep state, so keys are never released
+	syntheticEv, err := syntheticKeyEventForAbsEvent(ev, absInfos)
+	if err != nil {
+		slog.Error("syntheticKeyEventForAbsEvent()", "error", err)
+		return
+	} else if syntheticEv != nil {
+		ev = syntheticEv
+	}
+
 	if ev.Type == evdev.EV_KEY && ev.Value == 1 { // Key press event
-		keyName := evdev.CodeName(ev.Type, ev.Code)
+		keyName := ev.CodeName()
 		mappedAction := cfg.BindingForKey(keyName)
 		if mappedAction == "" {
 			mappedAction = "<unmapped>"

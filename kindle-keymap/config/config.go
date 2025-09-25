@@ -45,10 +45,8 @@ func (d *Device) BindingForKey(keyName string) string {
 			nk = append(nk, k)
 		}
 	}
-	slog.Debug("looking up binding for key", "keyName", keyName, "keys", nk, "bindings", d.bindings)
 	for _, key := range nk {
 		key = normalizeKeyName(key)
-		slog.Debug("checking for binding for key", "key", key)
 		if val, ok := d.bindings[key]; ok {
 			return val
 		}
