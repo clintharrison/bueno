@@ -90,3 +90,17 @@ http_archive(
     strip_prefix = "nogo-analyzer-fc5266f408ed9956e560cce4b988fdbb9b887200",
     url = "https://github.com/sluongng/nogo-analyzer/archive/fc5266f408ed9956e560cce4b988fdbb9b887200.tar.gz",
 )
+
+bazel_dep(name = "rules_java", version = "8.16.1")
+bazel_dep(name = "rules_jvm_external", version = "6.8")
+
+maven = use_extension("@rules_jvm_external//:extensions.bzl", "maven")
+maven.install(
+    artifacts = [
+        "org.ow2.asm:asm:9.9",
+        "net.sourceforge.serp:serp:1.15.1",
+        "org.osgi:org.osgi.framework:jar:1.10.0",
+    ],
+    lock_file = "//:maven_install.json",
+)
+use_repo(maven, "maven")
