@@ -49,7 +49,7 @@ public abstract class Patch implements Comparable<Patch>, ResourceMapProvider {
    * @param map the map that should be populated. Of course, every locale will have its own map, so
    *     there are no collisions between languages.
    */
-  protected abstract void initLocalization(String locale, Map map);
+  protected abstract void initLocalization(String locale, Map<String, String> map);
 
   /**
    * Returns the version of this patch. This MUST be an integer representing the date on which the
@@ -225,7 +225,7 @@ public abstract class Patch implements Comparable<Patch>, ResourceMapProvider {
       configurableSettings = initConfigurableSettings();
       return configurableSettings;
     } else {
-      TreeMap map = new TreeMap();
+      TreeMap<String, String> map = new TreeMap<>();
       initLocalization(id, map);
       if (!map.isEmpty()) {
         return map;
