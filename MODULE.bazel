@@ -104,3 +104,13 @@ maven.install(
     lock_file = "//:maven_install.json",
 )
 use_repo(maven, "maven")
+
+bazel_dep(name = "rules_shell", version = "0.6.1")
+
+kindle_firmware = use_repo_rule("//tools/build_rules/firmware:firmware.bzl", "kindle_firmware")
+
+kindle_firmware(
+    name = "scribe_firmware",
+    sha256 = "f3734b58852eb8d6c2c2e11fa40fbd3c8779443d94828fe9db20ab12b627ea16",
+    url = "https://s3.amazonaws.com/firmwaredownloads/update_kindle_scribe_5.17.3.bin",
+)

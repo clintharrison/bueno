@@ -1,0 +1,7 @@
+load("@rules_java//java:defs.bzl", "java_import")
+
+java_import(
+    name = "ReaderSDK-impl",
+    jars = ["opt/amazon/ebook/lib/ReaderSDK-impl.jar"],
+    visibility = ["//visibility:public"],
+)
