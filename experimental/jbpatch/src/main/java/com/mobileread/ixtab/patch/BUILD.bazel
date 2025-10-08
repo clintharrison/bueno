@@ -1,0 +1,38 @@
+load("@rules_java//java:java_binary.bzl", "java_binary")
+load("@rules_java//java:java_single_jar.bzl", "java_single_jar")
+
+java_binary(
+    name = "moreoptions",
+    srcs = ["MoreOptionsPatch.java"],
+    main_class = "com.mobileread.ixtab.patch.MoreOptionsPatch",
+    deps = [
+        "//experimental/jbpatch/src/main/java/com/mobileread/ixtab/jbpatch",
+        "@maven//:net_sourceforge_serp_serp",
+        "@maven//:org_osgi_org_osgi_framework",
+        "@scribe_firmware//:ReaderSDK-impl",
+    ],
+)
+
+java_single_jar(
+    name = "moreoptions_patch",
+    deploy_env = [
+        ":environment",
+    ],
+    deploy_manifest_lines = [
+        "Main-Class: com.mobileread.ixtab.patch.MoreOptionsPatch",
+    ],
+    deps = [":moreoptions"],
+)
+
+# This is a bit of a hack? But we need to convince Bazel these libraries are provided by the environment...
+java_binary(
+    name = "environment",
+    # this is just a dummy value
+    main_class = "None",
+    runtime_deps = [
+        "//experimental/jbpatch/src/main/java/com/mobileread/ixtab/jbpatch",
+        "@maven//:net_sourceforge_serp_serp",
+        "@maven//:org_osgi_org_osgi_framework",
+        "@scribe_firmware//:ReaderSDK-impl",
+    ],
+)
