@@ -1,0 +1,32 @@
+{
+    "items": [
+        {
+            "name": "kindle-keymap",
+            "exitmenu": false,
+            "items": [
+                {
+                    "name": "Check status",
+                    "action": "bin/extension.sh",
+                    "params": "check-status",
+                    "exitmenu": false,
+                    "refresh": false,
+                    "status": false
+                },
+                {
+                    "name": "Start kindle-keymap",
+                    "action": "bin/extension.sh",
+                    "params": "start",
+                    "exitmenu": false,
+                    "refresh": false
+                },
+                {
+                    "name": "Stop kindle-keymap",
+                    "action": "bin/extension.sh",
+                    "params": "stop",
+                    "exitmenu": false,
+                    "refresh": false
+                }
+            ]
+        }
+    ]
+}

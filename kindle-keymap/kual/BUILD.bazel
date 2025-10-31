@@ -1,0 +1,43 @@
+load("@tar.bzl", "tar")
+load("tar.bzl", "ext_dir", "ext_file")
+
+_PKG = package_name()
+
+_ROOT_DIR = "kindle-keymap"
+
+tar(
+    name = "kindle-keymap",
+    srcs = [
+        "bin/extension.sh",
+        "config.xml",
+        "menu.json",
+        "//kindle-keymap:config.yaml",
+        "//kindle-keymap/cmd/kindle-keymap:kindlehf",
+    ],
+    mtree = [
+        ext_dir(""),
+        ext_dir(_ROOT_DIR),
+        ext_file(
+            "{}/config.xml".format(_ROOT_DIR),
+            "{}/config.xml".format(_PKG),
+        ),
+        ext_file(
+            "{}/menu.json".format(_ROOT_DIR),
+            "{}/menu.json".format(_PKG),
+        ),
+        ext_dir("{}/bin".format(_ROOT_DIR)),
+        ext_file(
+            "{}/bin/extension.sh".format(_ROOT_DIR),
+            "{}/bin/extension.sh".format(_PKG),
+        ),
+        ext_file(
+            "{}/bin/kindle-keymap".format(_ROOT_DIR),
+            "$(location //kindle-keymap/cmd/kindle-keymap:kindlehf)",
+        ),
+        ext_file(
+            "{}/kindle-keymap.yaml".format(_ROOT_DIR),
+            "$(location //kindle-keymap:config.yaml)",
+        ),
+    ],
+    stamp = 0,
+)

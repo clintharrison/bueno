@@ -16,16 +16,15 @@ go_library(
     ],
 )
 
-go_binary(
-    name = "kindle-keymap",
-    embed = [":kindle-keymap_lib"],
-    pure = "off",
-    visibility = ["//visibility:public"],
-)
-
 go_cross_binary(
     name = "kindlehf",
     platform = "//tools/platforms:kindlehf_platform",
     target = ":kindle-keymap",
+    visibility = ["//visibility:public"],
+)
+
+go_binary(
+    name = "kindle-keymap",
+    embed = [":kindle-keymap_lib"],
     visibility = ["//visibility:public"],
 )

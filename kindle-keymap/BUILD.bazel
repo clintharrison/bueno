@@ -1,0 +1,6 @@
+exports_files(
+    ["config.yaml"],
+    visibility = [
+        "//kindle-keymap/kual:__pkg__",
+    ],
+)

@@ -12,7 +12,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const configPath = "/mnt/us/kindle-keymap.yaml"
+const defaultConfigPath = "/mnt/us/extensions/kindle-keymap/kindle-keymap.yaml"
+const configEnvVar = "KINDLE_KEYMAP_CONFIG"
 
 type yamlConfig struct {
 	Devices []yamlDevice `yaml:"device"`
@@ -73,9 +74,21 @@ type Config struct {
 	Devices []Device
 }
 
+func getConfigPath() string {
+	if path := os.Getenv(configEnvVar); path != "" {
+		fi, err := os.Stat(path)
+		if err == nil && !fi.IsDir() {
+			return path
+		}
+		slog.Warn(fmt.Sprintf("%s is set but not a valid file, using default", configEnvVar), "path", path, "error", err)
+	}
+	return defaultConfigPath
+}
+
 func Load() (*Config, error) {
 	var yamlCfg yamlConfig
 	var file io.ReadCloser
+	configPath := getConfigPath()
 	file, err := os.Open(configPath)
 	if err == nil {
 		err = yaml.NewDecoder(file).Decode(&yamlCfg)
@@ -84,7 +97,7 @@ func Load() (*Config, error) {
 			for _, d := range yamlCfg.Devices {
 				deviceNames = append(deviceNames, d.Name)
 			}
-			slog.Info("read config from file", "path", configPath, "device_names", deviceNames)
+			slog.Info("config read from file", "path", configPath, "device_names", deviceNames)
 		}
 	}
 	if err != nil {
