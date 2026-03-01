@@ -68,6 +68,8 @@ func (w *Watcher) Watch(ctx context.Context, dev *evdev.InputDevice, cfg *config
 
 var errUnknownEvent = errors.New("unknown event")
 
+// syntheticKeyEventForAbsEvent checks if the given event is an ABS event that we want to remap to a KEY event, and if so returns the remapped event.
+// Not all events will be remapped, which has a sentinel errUnknownEvent to indicate.
 func syntheticKeyEventForAbsEvent(ev *evdev.InputEvent, absInfos map[evdev.EvCode]evdev.AbsInfo) (*evdev.InputEvent, error) {
 	if ev == nil || ev.Type != evdev.EV_ABS || absInfos == nil {
 		return nil, errUnknownEvent
@@ -92,14 +94,14 @@ func syntheticKeyEventForAbsEvent(ev *evdev.InputEvent, absInfos map[evdev.EvCod
 	// and ABS_Y 127 at rest, 0 when up pressed, 255 when down pressed
 	// Since we only get events when the value changes, we
 	switch ev.Code {
-	case evdev.ABS_X:
+	case evdev.ABS_X, evdev.ABS_HAT0X:
 		switch ev.Value {
 		case absInfo.Minimum:
 			newEvent.Code = evdev.BTN_DPAD_LEFT
 		case absInfo.Maximum:
 			newEvent.Code = evdev.BTN_DPAD_RIGHT
 		}
-	case evdev.ABS_Y:
+	case evdev.ABS_Y, evdev.ABS_HAT0Y:
 		switch ev.Value {
 		case absInfo.Minimum:
 			newEvent.Code = evdev.BTN_DPAD_UP
@@ -125,7 +127,7 @@ func (w *Watcher) handleEvent(ctx context.Context, ev *evdev.InputEvent, cfg *co
 	// 8bitdo gamepad sends EV_ABS events for the D-pad, so we'll remap those to equivalent KEY_* events
 	// we don't keep state, so keys are never released
 	syntheticEv, err := syntheticKeyEventForAbsEvent(ev, absInfos)
-	if err != nil {
+	if err != nil && !errors.Is(err, errUnknownEvent) {
 		slog.Error("syntheticKeyEventForAbsEvent()", "error", err)
 		return
 	} else if syntheticEv != nil {
