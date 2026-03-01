@@ -34,10 +34,12 @@ func MaybeInstallUdevRule(ctx context.Context) error {
 	scriptExists := false
 	ruleExists := false
 
-	if _, err := os.Stat(devIsKeyboardScriptPath); err == nil {
+	_, err := os.Stat(devIsKeyboardScriptPath)
+	if err == nil {
 		scriptExists = true
 	}
-	if _, err := os.Stat(udevRulePath); err == nil {
+	_, err = os.Stat(udevRulePath)
+	if err == nil {
 		ruleExists = true
 	}
 
@@ -48,21 +50,22 @@ func MaybeInstallUdevRule(ctx context.Context) error {
 
 	slog.Info("running 'mntroot rw'")
 	cmd := exec.CommandContext(ctx, "/usr/sbin/mntroot", "rw")
-	err := cmd.Run()
+	err = cmd.Run()
 	if err != nil {
 		return err
 	}
 
 	defer func() {
-		cmd := exec.Command("/usr/sbin/mntroot", "ro")
-		if err := cmd.Run(); err != nil {
+		cmd := exec.CommandContext(ctx, "/usr/sbin/mntroot", "ro")
+		err := cmd.Run()
+		if err != nil {
 			slog.Error("failed to remount rootfs as read-only", "error", err)
 		}
 	}()
 
 	if !scriptExists {
 		slog.Info("installing dev_is_keyboard.sh script", "path", devIsKeyboardScriptPath)
-		err := os.WriteFile(devIsKeyboardScriptPath, []byte(devIsKeyboardScriptBody), 0755)
+		err := os.WriteFile(devIsKeyboardScriptPath, []byte(devIsKeyboardScriptBody), 0o755) //#nosec
 		if err != nil {
 			return err
 		}
@@ -70,7 +73,7 @@ func MaybeInstallUdevRule(ctx context.Context) error {
 
 	if !ruleExists {
 		slog.Info("installing udev rule", "path", udevRulePath)
-		err := os.WriteFile(udevRulePath, []byte(udevRuleBody), 0644)
+		err := os.WriteFile(udevRulePath, []byte(udevRuleBody), 0o644) //#nosec
 		if err != nil {
 			return err
 		}

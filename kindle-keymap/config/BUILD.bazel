@@ -7,6 +7,7 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//ace/address",
+        "//quietly",
         "@in_gopkg_yaml_v3//:yaml_v3",
     ],
 )

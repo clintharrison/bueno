@@ -6,12 +6,16 @@ linters:
   default: all
   disable:
     ### Noisy/false positives:
+    - nestif # leave me alone, nested ifs are fine
+    - gochecknoglobals # lots of globals with ace/cgo
+    - dupl # can we just exclude one place??
     - depguard
     - funlen
     - gomoddirectives
     - nlreturn
     - prealloc
     - testpackage
+    - gochecknoinits
     # noisy whitespace
     - wsl
     - wsl_v5
@@ -23,16 +27,48 @@ linters:
     - godox
     # I've never liked these kinds of rules. Split up a function based on vibes!
     - cyclop
+    - gocyclo
     - gocognit
+    - interfacebloat
+    - ireturn # kind of picky about the generics we use in lipc
 
     ### These should be eventually fixed:
     - varnamelen
     - forbidigo # needs a user-facing "logs" package, then remove fmt.Print*
+    - wrapcheck
+    - mnd # too many magic numbers :\
+    - lll # long lines are low hanging fruit for later I guess...
+    - godot
+    - exhaustruct # too many to fix right now :(
   exclusions:
     generated: lax
     presets:
       - comments
       - common-false-positives
+    rules:
+      - path: "ace/address/address.go"
+        linters:
+          - gocritic
+        text: "ifElseChain: rewrite if-else to switch statement"
+      - path: "ace/util.go"
+        linters:
+          - gocritic
+        text: "underef:" # false positive with cgo?
+      - path: "xkb/xkb.go"
+        linters:
+          - gci
+      - path: "xkb/xkb.go"
+        text: "dupSubExpr" # false positive with cgo?
+      - path: "kindle-keymap/cmd/kindle-keymap/main.go"
+        linters:
+          - gci
+      - path: "ace/ace.go"
+        linters:
+          - gci
+          - gocritic
+      - path: "colmi/cmd/main.go"
+        linters:
+          - gci
   settings:
     mnd:
       ignored-numbers:
@@ -53,11 +89,15 @@ linters:
     gosec:
       excludes:
         - G104 # errcheck instead
-    wrapcheck:
-      extra-ignore-sigs:
-        - .AddStack(
-        - .Annotate(
-        - .Annotatef(
+        # - G306 # 755 or 644 permissions are fine
+        # - G703
+        # - G706
+    # TODO: enable wrapcheck and fix the many issues
+    # wrapcheck:
+    #   extra-ignore-sigs:
+    #     - .AddStack(
+    #     - .Annotate(
+    #     - .Annotatef(
 formatters:
   enable:
     - gci

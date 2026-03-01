@@ -12,6 +12,7 @@ import (
 	"github.com/clintharrison/bueno/kindle-keymap/actions"
 	"github.com/clintharrison/bueno/kindle-keymap/config"
 	"github.com/clintharrison/bueno/kindle-keymap/lipcaction"
+	"github.com/clintharrison/bueno/quietly"
 	"github.com/clintharrison/bueno/xkb"
 	"github.com/holoplot/go-evdev"
 )
@@ -33,7 +34,7 @@ func New(x11 *xkb.X11, brightness *lipcaction.BrightnessAction, rotation *lipcac
 }
 
 func (w *Watcher) Watch(ctx context.Context, dev *evdev.InputDevice, cfg *config.Device) {
-	defer dev.Close()
+	defer quietly.Close(dev)
 	devName, _ := dev.Name()
 	slog.Info("watching device for key events", "devname", devName, "path", dev.Path())
 
@@ -65,17 +66,19 @@ func (w *Watcher) Watch(ctx context.Context, dev *evdev.InputDevice, cfg *config
 	}
 }
 
+var errUnknownEvent = errors.New("unknown event")
+
 func syntheticKeyEventForAbsEvent(ev *evdev.InputEvent, absInfos map[evdev.EvCode]evdev.AbsInfo) (*evdev.InputEvent, error) {
 	if ev == nil || ev.Type != evdev.EV_ABS || absInfos == nil {
-		return nil, nil
+		return nil, errUnknownEvent
 	}
 	absInfo, ok := absInfos[ev.Code]
 	if !ok {
-		return nil, nil
+		return nil, errUnknownEvent
 	}
 	if absInfo.Minimum == 0 && absInfo.Maximum == 0 {
 		// this axis doesn't have a range, so we can't interpret it
-		return nil, nil
+		return nil, errUnknownEvent
 	}
 
 	newEvent := &evdev.InputEvent{
@@ -110,7 +113,7 @@ func syntheticKeyEventForAbsEvent(ev *evdev.InputEvent, absInfos map[evdev.EvCod
 	}
 
 	// if we didn't remap the event, that's not an error
-	return nil, nil
+	return nil, errUnknownEvent
 }
 
 func (w *Watcher) handleEvent(ctx context.Context, ev *evdev.InputEvent, cfg *config.Device, absInfos map[evdev.EvCode]evdev.AbsInfo) {
@@ -138,47 +141,63 @@ func (w *Watcher) handleEvent(ctx context.Context, ev *evdev.InputEvent, cfg *co
 		slog.Info("key pressed", "code", ev.Code, "name", keyName, "mapped_action", mappedAction)
 		switch mappedAction {
 		case actions.NextPage:
-			w.x11.KeyPress(xkb.XKPageDown)
+			err := w.x11.KeyPress(xkb.XKPageDown)
+			if err != nil {
+				slog.Error("KeyPress(XKPageDown)", "error", err)
+			}
 		case actions.PrevPage:
-			w.x11.KeyPress(xkb.XKPageUp)
+			err := w.x11.KeyPress(xkb.XKPageUp)
+			if err != nil {
+				slog.Error("KeyPress(XKPageUp)", "error", err)
+			}
 		case actions.BrightnessUp:
-			if err := w.brightness.IncreaseBrightness(ctx); err != nil {
+			err := w.brightness.IncreaseBrightness(ctx)
+			if err != nil {
 				slog.Error("IncreaseBrightness()", "error", err)
 			}
 		case actions.BrightnessDown:
-			if err := w.brightness.DecreaseBrightness(ctx); err != nil {
+			err := w.brightness.DecreaseBrightness(ctx)
+			if err != nil {
 				slog.Error("DecreaseBrightness()", "error", err)
 			}
 		case actions.WarmthUp:
-			if err := w.brightness.IncreaseWarmth(ctx); err != nil {
+			err := w.brightness.IncreaseWarmth(ctx)
+			if err != nil {
 				slog.Error("IncreaseWarmth()", "error", err)
 			}
 		case actions.WarmthDown:
-			if err := w.brightness.DecreaseWarmth(ctx); err != nil {
+			err := w.brightness.DecreaseWarmth(ctx)
+			if err != nil {
 				slog.Error("DecreaseWarmth()", "error", err)
 			}
 		case actions.RotateCW:
-			if err := w.rotation.Rotate(ctx, lipcaction.RotationClockwise); err != nil {
+			err := w.rotation.Rotate(ctx, lipcaction.RotationClockwise)
+			if err != nil {
 				slog.Error("Rotate()", "error", err)
 			}
 		case actions.RotateCCW:
-			if err := w.rotation.Rotate(ctx, lipcaction.RotationCounterclockwise); err != nil {
+			err := w.rotation.Rotate(ctx, lipcaction.RotationCounterclockwise)
+			if err != nil {
 				slog.Error("Rotate()", "error", err)
 			}
 		case actions.OrientLockUp:
-			if err := w.rotation.SetOrientationLock(ctx, lipcaction.OrientationPortrait); err != nil {
+			err := w.rotation.SetOrientationLock(ctx, lipcaction.OrientationPortrait)
+			if err != nil {
 				slog.Error("SetOrientationLock()", "error", err)
 			}
 		case actions.OrientLockDown:
-			if err := w.rotation.SetOrientationLock(ctx, lipcaction.OrientationPortraitInverted); err != nil {
+			err := w.rotation.SetOrientationLock(ctx, lipcaction.OrientationPortraitInverted)
+			if err != nil {
 				slog.Error("SetOrientationLock()", "error", err)
 			}
 		case actions.OrientLockLeft:
-			if err := w.rotation.SetOrientationLock(ctx, lipcaction.OrientationLandscapeLeft); err != nil {
+			err := w.rotation.SetOrientationLock(ctx, lipcaction.OrientationLandscapeLeft)
+			if err != nil {
 				slog.Error("SetOrientationLock()", "error", err)
 			}
 		case actions.OrientLockRight:
-			if err := w.rotation.SetOrientationLock(ctx, lipcaction.OrientationLandscapeRight); err != nil {
+			err := w.rotation.SetOrientationLock(ctx, lipcaction.OrientationLandscapeRight)
+			if err != nil {
 				slog.Error("SetOrientationLock()", "error", err)
 			}
 		default:

@@ -26,8 +26,10 @@ func NewAddressFromAce(addr C.aceBT_bdAddr_t) address.Address {
 }
 
 func AddressToAce(a address.Address) *C.aceBT_bdAddr_t {
-	addr := &C.aceBT_bdAddr_t{}
-	for i := 0; i < 6; i++ {
+	addr := &C.aceBT_bdAddr_t{
+		address: [6]C.uint8_t{},
+	}
+	for i := range 6 {
 		addr.address[i] = C.uint8_t(a.Bytes[i])
 	}
 	return addr
@@ -62,8 +64,8 @@ func (sr *ScanResult) RSSI() int {
 
 func (sr *ScanResult) TxPower() int {
 	var txPower C.int
-	len := C.aceBT_scanRecordExtractTxPower(sr.record, &txPower)
-	if len == 1 {
+	n := C.aceBT_scanRecordExtractTxPower(sr.record, &txPower)
+	if n == 1 {
 		return int(txPower)
 	}
 	return 0

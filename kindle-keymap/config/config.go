@@ -9,10 +9,12 @@ import (
 	"strings"
 
 	"github.com/clintharrison/bueno/ace/address"
+	"github.com/clintharrison/bueno/quietly"
 	"gopkg.in/yaml.v3"
 )
 
 const defaultConfigPath = "/mnt/us/extensions/kindle-keymap/kindle-keymap.yaml"
+
 const configEnvVar = "KINDLE_KEYMAP_CONFIG"
 
 type yamlConfig struct {
@@ -36,8 +38,8 @@ func isSpecificName(key string) bool {
 
 func (d *Device) BindingForKey(keyName string) string {
 	// key may be several names separated by /
-	keys := strings.Split(keyName, "/")
-	for _, key := range keys {
+	keys := strings.SplitSeq(keyName, "/")
+	for key := range keys {
 		if val, ok := d.bindings[key]; ok {
 			return val
 		}
@@ -70,11 +72,11 @@ type Config struct {
 
 func getConfigPath() string {
 	if path := os.Getenv(configEnvVar); path != "" {
-		fi, err := os.Stat(path)
+		fi, err := os.Stat(path) //#nosec
 		if err == nil && !fi.IsDir() {
 			return path
 		}
-		slog.Warn(fmt.Sprintf("%s is set but not a valid file, using default", configEnvVar), "path", path, "error", err)
+		slog.Warn(configEnvVar+" is set but not a valid file, using default", "path", path, "error", err) //#nosec
 	}
 	return defaultConfigPath
 }
@@ -98,21 +100,24 @@ func Load() (*Config, error) {
 		slog.Error("failed to load config file", "path", configPath, "error", err)
 		return nil, err
 	}
-	defer file.Close()
+	defer quietly.Close(file)
 	devices := make([]Device, 0, len(yamlCfg.Devices))
 	for _, d := range yamlCfg.Devices {
 		bindings := make(map[string]string, len(d.Bind))
 		for k, v := range d.Bind {
 			if isSpecificName(k) {
 				// Keep the original name if it has a KEY_ prefix to disambiguate from BTN_.
-				if err := addToBindings(bindings, k, v); err != nil {
+				err := addToBindings(bindings, k, v)
+				if err != nil {
 					return nil, fmt.Errorf("error in device %q binding for key %q: %w", d.Name, k, err)
 				}
 			} else {
-				if err := addToBindings(bindings, "BTN_"+k, v); err != nil {
+				err := addToBindings(bindings, "BTN_"+k, v)
+				if err != nil {
 					return nil, fmt.Errorf("error in device %q binding for key %q: %w", d.Name, "BTN_"+k, err)
 				}
-				if err := addToBindings(bindings, "KEY_"+k, v); err != nil {
+				err = addToBindings(bindings, "KEY_"+k, v)
+				if err != nil {
 					return nil, fmt.Errorf("error in device %q binding for key %q: %w", d.Name, "KEY_"+k, err)
 				}
 			}

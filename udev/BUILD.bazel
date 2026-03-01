@@ -7,6 +7,7 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//ace/address",
+        "//quietly",
         "@com_github_holoplot_go_evdev//:go-evdev",
         "@com_github_pilebones_go_udev//netlink",
     ],

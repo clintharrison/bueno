@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -12,11 +13,12 @@ import (
 	"github.com/pilebones/go-udev/netlink"
 
 	"github.com/clintharrison/bueno/ace/address"
-	"github.com/clintharrison/bueno/core/log"
+	"github.com/clintharrison/bueno/core/logutil"
 	"github.com/clintharrison/bueno/kindle-keymap/config"
 	"github.com/clintharrison/bueno/kindle-keymap/install"
 	"github.com/clintharrison/bueno/kindle-keymap/lipcaction"
 	"github.com/clintharrison/bueno/kindle-keymap/watcher"
+	"github.com/clintharrison/bueno/quietly"
 	"github.com/clintharrison/bueno/udev"
 	"github.com/clintharrison/bueno/xkb"
 )
@@ -38,14 +40,14 @@ func findExistingDevice(devices []config.Device) (*evdev.InputDevice, *config.De
 		uniqueID, err := dev.UniqueID()
 		if err != nil {
 			slog.Warn("dev.UniqueID() failed, skipping device", "name", d.Name, "path", d.Path, "error", err)
-			dev.Close()
+			quietly.Close(dev)
 			continue
 		}
 
 		addr, err := address.NewFromStringReverse(uniqueID)
 		if err != nil {
 			slog.Warn("address.NewFromStringReverse() failed, skipping device", "name", d.Name, "path", d.Path, "unique_id", uniqueID, "error", err)
-			dev.Close()
+			quietly.Close(dev)
 			continue
 		}
 
@@ -56,7 +58,7 @@ func findExistingDevice(devices []config.Device) (*evdev.InputDevice, *config.De
 			}
 		}
 	}
-	return nil, nil, fmt.Errorf("no input device found matching given patterns")
+	return nil, nil, errors.New("no input device found matching given patterns")
 }
 
 func startDeviceWatcher(ctx context.Context, cfg *config.Config) chan *evdev.InputDevice {
@@ -70,7 +72,8 @@ func startDeviceWatcher(ctx context.Context, cfg *config.Config) chan *evdev.Inp
 	idw := &udev.InputDeviceWatcher{
 		Devices: devices,
 		AddFunc: func(dev *evdev.InputDevice) {
-			if devName, err := dev.Name(); err == nil {
+			devName, err := dev.Name()
+			if err == nil {
 				slog.Info("new input device detected", "devname", devName, "path", dev.Path())
 				deviceCh <- dev
 			}
@@ -109,14 +112,14 @@ func runKeymapLoop(ctx context.Context, cfg *config.Config) error {
 		slog.Error("xkb.Open()", "error", err)
 		return err
 	}
-	defer x11.Close()
+	defer quietly.Close(x11)
 
 	client, err := lipcaction.NewLipcClient()
 	if err != nil {
 		slog.Error("lipcaction.NewLipcClient()", "error", err)
 		return err
 	}
-	defer client.Close()
+	defer quietly.Close(client)
 	brightness := lipcaction.NewBrightnessAction(client)
 	rotation := lipcaction.NewRotationAction(client)
 
@@ -126,8 +129,10 @@ func runKeymapLoop(ctx context.Context, cfg *config.Config) error {
 	deviceCh := startDeviceWatcher(ctx, cfg)
 	// "catch up" on any existing devices that match the pattern
 	deviceFound := false
-	if dev, matchedCfg, err := findExistingDevice(cfg.Devices); err == nil {
-		if devName, err := dev.Name(); err == nil {
+	dev, matchedCfg, err := findExistingDevice(cfg.Devices)
+	if err == nil {
+		devName, err := dev.Name()
+		if err == nil {
 			slog.Info("using existing input device", "devname", devName, "path", dev.Path(), "pattern", matchedCfg.Address().ToString())
 			deviceFound = true
 			go func() { deviceCh <- dev }()
@@ -139,7 +144,7 @@ func runKeymapLoop(ctx context.Context, cfg *config.Config) error {
 	// if we didn't find any existing devices, kick off the process to run pairing
 	if !deviceFound {
 		slog.Info("no existing devices found, starting Bluetooth pairing process")
-		go runSelfAsPairingProcess(pairCancelCtx)
+		go func() { _ = runSelfAsPairingProcess(pairCancelCtx) }()
 	}
 
 	// now we wait for devices to show up, and then watch their events in a separate goroutine
@@ -153,19 +158,19 @@ func runKeymapLoop(ctx context.Context, cfg *config.Config) error {
 			devName, err := dev.Name()
 			if err != nil {
 				slog.Error("dev.Name()", "error", err)
-				dev.Close()
+				quietly.Close(dev)
 				continue
 			}
 			uniqueID, err := dev.UniqueID()
 			if err != nil {
 				slog.Error("dev.UniqueID()", "error", err, "devname", devName, "path", dev.Path())
-				dev.Close()
+				quietly.Close(dev)
 				continue
 			}
 			addr, err := address.NewFromStringReverse(uniqueID)
 			if err != nil {
 				slog.Error("address.NewFromStringReverse()", "error", err, "devname", devName, "path", dev.Path(), "unique_id", uniqueID)
-				dev.Close()
+				quietly.Close(dev)
 				continue
 			}
 			slog.Debug("got new device", "name", devName, "path", dev.Path(), "error", err, "addr", addr.ToString())
@@ -173,7 +178,7 @@ func runKeymapLoop(ctx context.Context, cfg *config.Config) error {
 			slog.Debug("using config", "cfg", cfg.Dump())
 			if cfg == nil {
 				slog.Error("no config found matching device name", "devname", devName, "path", dev.Path())
-				dev.Close()
+				quietly.Close(dev)
 				continue
 			}
 			// now that we found a device, cancel the process looking for devices to pair
@@ -184,29 +189,37 @@ func runKeymapLoop(ctx context.Context, cfg *config.Config) error {
 }
 
 func main() {
+	err := doMain()
+	if err != nil {
+		slog.Error("Application error", "error", err)
+		os.Exit(1)
+	}
+}
+
+func doMain() error {
 	ctx := context.Background()
 	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	log.ConfigureInteractiveLogger()
+	logutil.ConfigureInteractiveLogger()
 
 	cfg, err := config.Load()
 	if err != nil {
-		slog.Error("config.Load()", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to load config: %w", err)
 	}
 
 	// If this env var is set, we're in the subprocess expected to scan, pair, and exit.
 	if os.Getenv("KINDLE_KEYMAP_RUN_BLUETOOTH_PAIR") == "1" {
-		if err := runPairProcessInner(ctx, cfg); err != nil {
-			slog.Error("runPairProcessInner()", "error", err)
-			os.Exit(1)
+		err := runPairProcessInner(ctx, cfg)
+		if err != nil {
+			return fmt.Errorf("error in pairing process: %w", err)
 		}
-		os.Exit(0)
+		return nil
 	}
 
-	if err := runKeymapLoop(ctx, cfg); err != nil {
-		slog.Error("error in one of the main goroutines", "error", err)
-		os.Exit(1)
+	err = runKeymapLoop(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("error in keymap loop: %w", err)
 	}
+	return nil
 }

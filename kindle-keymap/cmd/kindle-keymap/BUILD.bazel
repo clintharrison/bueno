@@ -11,11 +11,12 @@ go_library(
     deps = [
         "//ace",
         "//ace/address",
-        "//core/log",
+        "//core/logutil",
         "//kindle-keymap/config",
         "//kindle-keymap/install",
         "//kindle-keymap/lipcaction",
         "//kindle-keymap/watcher",
+        "//quietly",
         "//udev",
         "//xkb",
         "@com_github_holoplot_go_evdev//:go-evdev",

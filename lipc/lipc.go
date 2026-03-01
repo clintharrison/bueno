@@ -10,22 +10,22 @@ import (
 	"github.com/godbus/dbus/v5"
 )
 
-type LipcPropType string
+type PropType string
 
 const (
-	LipcIntProp LipcPropType = "Int"
-	LipcStrProp LipcPropType = "Str"
+	IntProp PropType = "Int"
+	StrProp PropType = "Str"
 )
 
-type LipcPropMessageType string
+type PropMessageType string
 
 const (
-	LipcGetProp LipcPropMessageType = "get"
-	LipcSetProp LipcPropMessageType = "set"
+	GetProp PropMessageType = "get"
+	SetProp PropMessageType = "set"
 )
 
 // makePropertyMessage constructs a D-Bus message for getting or setting an LIPC property.
-func makePropertyMessage[T any](msgType LipcPropMessageType, service, property string, propType LipcPropType, body ...T) (*dbus.Message, error) {
+func makePropertyMessage[T any](msgType PropMessageType, service, property string, propType PropType, body ...T) (*dbus.Message, error) {
 	msg := new(dbus.Message)
 	msg.Type = dbus.TypeMethodCall
 	msg.Flags = (dbus.FlagNoAutoStart)
@@ -46,8 +46,8 @@ func makePropertyMessage[T any](msgType LipcPropMessageType, service, property s
 
 	// LIPC seems to set the _calling_ service name in the body for gets, but that's optional
 	// since not all connections have a service name anyway.
-	if msgType == LipcSetProp {
-		var interfaceBody []interface{}
+	if msgType == SetProp {
+		var interfaceBody []any
 		for _, v := range body {
 			interfaceBody = append(interfaceBody, v)
 		}
@@ -57,29 +57,30 @@ func makePropertyMessage[T any](msgType LipcPropMessageType, service, property s
 		}
 	}
 
-	if err := msg.IsValid(); err != nil {
+	err := msg.IsValid()
+	if err != nil {
 		slog.Error("message is not valid", "error", err)
 		return nil, err
 	}
 	return msg, nil
 }
 
-func LipcGetProperty[T any](ctx context.Context, conn *dbus.Conn, service, property string) (ret T, err error) {
-	return lipcDoProperty[T](ctx, conn, service, property, LipcGetProp)
+func GetProperty[T any](ctx context.Context, conn *dbus.Conn, service, property string) (T, error) {
+	return doProperty[T](ctx, conn, service, property, GetProp)
 }
 
-func LipcSetProperty[T any](ctx context.Context, conn *dbus.Conn, service, property string, value T) (err error) {
-	_, err = lipcDoProperty(ctx, conn, service, property, LipcSetProp, value)
-	return
+func SetProperty[T any](ctx context.Context, conn *dbus.Conn, service, property string, value T) error {
+	_, err := doProperty(ctx, conn, service, property, SetProp, value)
+	return err
 }
 
-func lipcDoProperty[T any](ctx context.Context, conn *dbus.Conn, service, property string, msgType LipcPropMessageType, value ...T) (ret T, err error) {
-	var propType LipcPropType
+func doProperty[T any](ctx context.Context, conn *dbus.Conn, service, property string, msgType PropMessageType, value ...T) (T, error) {
+	var propType PropType
 	switch any(*new(T)).(type) {
 	case string:
-		propType = LipcStrProp
+		propType = StrProp
 	case int32:
-		propType = LipcIntProp
+		propType = IntProp
 	default:
 		return *new(T), fmt.Errorf("unsupported property type %T", any(value))
 	}
@@ -97,13 +98,15 @@ func lipcDoProperty[T any](ctx context.Context, conn *dbus.Conn, service, proper
 
 	var propValue T
 	var status uint32
-	if msgType == LipcGetProp {
-		if err := call.Store(&status, &propValue); err != nil {
+	if msgType == GetProp {
+		err := call.Store(&status, &propValue)
+		if err != nil {
 			slog.Error("failed to store call body", "error", err)
 			return *new(T), err
 		}
 	} else {
-		if err := call.Store(&status); err != nil {
+		err := call.Store(&status)
+		if err != nil {
 			slog.Error("failed to store call body", "error", err)
 			return *new(T), err
 		}

@@ -154,10 +154,10 @@ var statusDescriptions = map[int32]string{
 	C.ACE_STATUS_DATA_CORRUPTED:                     "Data is corrupted",
 	C.ACE_STATUS_CONNECTED:                          "Connected",
 	C.ACE_STATUS_DISCONNECTED:                       "Disconnected",
-	C.ACE_STATUS_RESET:                              "Reset occured",
+	C.ACE_STATUS_RESET:                              "Reset occurred",
 	C.ACE_STATUS_FAILURE_UNKNOWN_FILESYSTEM:         "Filesystem not integrated with the system",
 	C.ACE_STATUS_FAILURE_MAX_FILESYSTEMS:            "System already configured with the maximum number of filesystems",
-	C.ACE_STATUS_FAILURE_INCOMPATIBLE_FILE:          "Flle operation not compatible",
+	C.ACE_STATUS_FAILURE_INCOMPATIBLE_FILE:          "File operation not compatible",
 	C.ACE_STATUS_FAILURE_FILE_NOT_OPEN:              "File not open",
 	C.ACE_STATUS_EOF:                                "File pointer has reached end of file",
 	C.ACE_STATUS_MAX_FILE_SIZE_REACHED:              "Requested size not supported",
@@ -246,19 +246,20 @@ func (s Status) String() string {
 	return fmt.Sprintf("%s{%d}", s.Name(), s.int32)
 }
 
-type AceRadioState int
+type RadioState int
 
 const (
-	RadioDisabled AceRadioState = iota
+	RadioDisabled RadioState = iota
 	RadioEnabled
 	RadioEnabling
 	RadioDisabling
 )
 
-func (a *aceAdapter) RadioState() (AceRadioState, error) {
+func (a *aceAdapter) RadioState() (RadioState, error) {
 	var radioState C.aceBT_state_t
 	bleStatus := C.aceBT_getRadioState(&radioState)
-	if err := errForStatus(bleStatus); err != nil {
+	err := errForStatus(bleStatus)
+	if err != nil {
 		slog.Error("Failed to get radio state", "status", bleStatus, "error", err)
 		return RadioDisabled, err
 	}

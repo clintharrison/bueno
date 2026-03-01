@@ -2,29 +2,38 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/clintharrison/bueno/core/log"
+	"github.com/clintharrison/bueno/core/logutil"
 	"github.com/clintharrison/bueno/lipc"
+	"github.com/clintharrison/bueno/quietly"
 	"github.com/godbus/dbus/v5"
 )
 
 func main() {
+	err := doMain()
+	if err != nil {
+		slog.Error("Application error", "error", err)
+		os.Exit(1)
+	}
+}
+
+func doMain() error {
 	ctx := context.Background()
 	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	log.ConfigureInteractiveLogger()
+	logutil.ConfigureInteractiveLogger()
 
 	conn, err := dbus.ConnectSystemBus()
 	if err != nil {
-		slog.Error("Failed to connect to system bus", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to connect to system bus: %w", err)
 	}
-	defer conn.Close()
+	defer quietly.Close(conn)
 
 	// Skip requesting a name, like LipcOpenNoName()
 	// conn.RequestName("com.example.lipc-go", dbus.NameFlagReplaceExisting)
@@ -32,22 +41,21 @@ func main() {
 	// conn.Eavesdrop() will cause us to miss any replies to our own calls in Demo(),
 	// so only one or the other can be run at a time.
 	// EavesdropAll(ctx, conn)
-
-	if err = Demo(ctx, conn); err != nil {
-		slog.Error("Demo()", "error", err)
-		os.Exit(1)
+	err = Demo(ctx, conn)
+	if err != nil {
+		return fmt.Errorf("error in demo: %w", err)
 	}
-
+	return nil
 }
 
 // EavesdropAll sets up match rules to listen for all message types on the given bus.
 // This function does not return until the context is cancelled.
 func EavesdropAll(ctx context.Context, conn *dbus.Conn) error {
 	// I think this is equivalent to conn.AddMatchSignalContext(ctx)? But it doesn't expose any other match types :/
-	conn.BusObject().CallWithContext(ctx, "org.freedesktop.DBus.AddMatch", 0, "type='signal'").Store()
-	conn.BusObject().CallWithContext(ctx, "org.freedesktop.DBus.AddMatch", 0, "type='method_call'").Store()
-	conn.BusObject().CallWithContext(ctx, "org.freedesktop.DBus.AddMatch", 0, "type='method_return'").Store()
-	conn.BusObject().CallWithContext(ctx, "org.freedesktop.DBus.AddMatch", 0, "type='error'").Store()
+	_ = conn.BusObject().CallWithContext(ctx, "org.freedesktop.DBus.AddMatch", 0, "type='signal'").Store()
+	_ = conn.BusObject().CallWithContext(ctx, "org.freedesktop.DBus.AddMatch", 0, "type='method_call'").Store()
+	_ = conn.BusObject().CallWithContext(ctx, "org.freedesktop.DBus.AddMatch", 0, "type='method_return'").Store()
+	_ = conn.BusObject().CallWithContext(ctx, "org.freedesktop.DBus.AddMatch", 0, "type='error'").Store()
 
 	ms := make(chan *dbus.Message, 10)
 	conn.Eavesdrop(ms)
@@ -69,28 +77,29 @@ func EavesdropAll(ctx context.Context, conn *dbus.Conn) error {
 }
 
 func Demo(ctx context.Context, conn *dbus.Conn) error {
-	intensity, err := lipc.LipcGetProperty[int32](ctx, conn, "com.lab126.powerd", "flIntensity")
+	intensity, err := lipc.GetProperty[int32](ctx, conn, "com.lab126.powerd", "flIntensity")
 	if err != nil {
 		slog.Error("Failed to get property", "error", err)
 		return err
 	}
 	slog.Info("got property", "intensity", intensity)
 
-	cvmLogLevel, err := lipc.LipcGetProperty[string](ctx, conn, "com.lab126.cvm", "logLevel")
+	cvmLogLevel, err := lipc.GetProperty[string](ctx, conn, "com.lab126.cvm", "logLevel")
 	if err != nil {
 		slog.Error("Failed to get property", "error", err)
 		return err
 	}
 	slog.Info("got property", "cvm log level", cvmLogLevel)
 
-	powerStatus, err := lipc.LipcGetProperty[string](ctx, conn, "com.lab126.powerd", "status")
+	powerStatus, err := lipc.GetProperty[string](ctx, conn, "com.lab126.powerd", "status")
 	if err != nil {
 		slog.Error("Failed to get property", "error", err)
 		return err
 	}
 	slog.Info("got property", "power status", powerStatus)
 
-	if err = lipc.LipcSetProperty(ctx, conn, "com.lab126.powerd", "flIntensity", intensity+1); err != nil {
+	err = lipc.SetProperty(ctx, conn, "com.lab126.powerd", "flIntensity", intensity+1)
+	if err != nil {
 		slog.Error("Failed to set property", "error", err)
 		return err
 	}

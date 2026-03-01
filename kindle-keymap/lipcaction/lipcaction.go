@@ -39,34 +39,13 @@ func NewBrightnessAction(client *LipcClient) *BrightnessAction {
 	return ba
 }
 
-func (a *BrightnessAction) InitRanges() error {
-	val, err := lipc.LipcGetProperty[int32](a.client.conn.Context(), a.client.conn, "com.lab126.powerd", "flMaxIntensity")
+func (a *BrightnessAction) InitRanges(ctx context.Context) error {
+	val, err := lipc.GetProperty[int32](ctx, a.client.conn, "com.lab126.powerd", "flMaxIntensity")
 	if err != nil {
 		return err
 	}
 	a.maxIntensity = val
 	return nil
-}
-
-func (a *BrightnessAction) adjust(ctx context.Context, prop string, delta int32) error {
-	if a.maxIntensity == 0 {
-		if err := a.InitRanges(); err != nil {
-			slog.Error("InitRanges()", "error", err)
-			return err
-		}
-	}
-	curr, err := lipc.LipcGetProperty[int32](ctx, a.client.conn, "com.lab126.powerd", prop)
-	if err != nil {
-		return err
-	}
-	newVal := curr + delta
-	if newVal < 0 {
-		newVal = 0
-	} else if newVal > a.maxIntensity {
-		newVal = a.maxIntensity
-	}
-	slog.Debug("adjust()", "prop", prop, "curr", curr, "delta", delta, "new", newVal, "max", a.maxIntensity)
-	return lipc.LipcSetProperty(ctx, a.client.conn, "com.lab126.powerd", prop, newVal)
 }
 
 func (a *BrightnessAction) DecreaseBrightness(ctx context.Context) error {
@@ -83,6 +62,28 @@ func (a *BrightnessAction) DecreaseWarmth(ctx context.Context) error {
 
 func (a *BrightnessAction) IncreaseWarmth(ctx context.Context) error {
 	return a.adjust(ctx, "currentAmberLevel", 1)
+}
+
+func (a *BrightnessAction) adjust(ctx context.Context, prop string, delta int32) error {
+	if a.maxIntensity == 0 {
+		err := a.InitRanges(ctx)
+		if err != nil {
+			slog.Error("InitRanges()", "error", err)
+			return err
+		}
+	}
+	curr, err := lipc.GetProperty[int32](ctx, a.client.conn, "com.lab126.powerd", prop)
+	if err != nil {
+		return err
+	}
+	newVal := curr + delta
+	if newVal < 0 {
+		newVal = 0
+	} else if newVal > a.maxIntensity {
+		newVal = a.maxIntensity
+	}
+	slog.Debug("adjust()", "prop", prop, "curr", curr, "delta", delta, "new", newVal, "max", a.maxIntensity)
+	return lipc.SetProperty(ctx, a.client.conn, "com.lab126.powerd", prop, newVal)
 }
 
 type RotationAction struct {
@@ -103,27 +104,26 @@ func NewRotationAction(client *LipcClient) *RotationAction {
 	return &RotationAction{client: client}
 }
 
-func orientationFromString(s string) (o Orientation, err error) {
+func orientationFromString(s string) (Orientation, error) {
 	switch s {
 	case "":
-		o = OrientationUnlocked
+		return OrientationUnlocked, nil
 	case "U":
-		o = OrientationPortrait
+		return OrientationPortrait, nil
 	case "D":
-		o = OrientationPortraitInverted
+		return OrientationPortraitInverted, nil
 	case "L":
-		o = OrientationLandscapeLeft
+		return OrientationLandscapeLeft, nil
 	case "R":
-		o = OrientationLandscapeRight
+		return OrientationLandscapeRight, nil
 	default:
-		err = errors.New("unknown orientation: " + s)
+		return OrientationUnlocked, errors.New("unknown orientation: " + s)
 	}
-	return
 }
+
 func (a *RotationAction) GetOrientationLock(ctx context.Context) (Orientation, error) {
-	var err error
-	var o string
-	if o, err = lipc.LipcGetProperty[string](ctx, a.client.conn, "com.lab126.winmgr", "orientationLock"); err != nil {
+	o, err := lipc.GetProperty[string](ctx, a.client.conn, "com.lab126.winmgr", "orientationLock")
+	if err != nil {
 		return OrientationUnlocked, err
 	}
 	orientation, err := orientationFromString(o)
@@ -135,7 +135,7 @@ func (a *RotationAction) GetOrientationLock(ctx context.Context) (Orientation, e
 
 func (a *RotationAction) SetOrientationLock(ctx context.Context, o Orientation) error {
 	oo := string(o)
-	return lipc.LipcSetProperty(ctx, a.client.conn, "com.lab126.winmgr", "orientationLock", oo)
+	return lipc.SetProperty(ctx, a.client.conn, "com.lab126.winmgr", "orientationLock", oo)
 }
 
 type RotationDirection bool
@@ -161,7 +161,7 @@ func (a *RotationAction) Rotate(ctx context.Context, direction RotationDirection
 	var nextOrientation Orientation
 	if direction == RotationClockwise {
 		switch current {
-		case OrientationPortrait:
+		case OrientationUnlocked, OrientationPortrait:
 			nextOrientation = OrientationLandscapeRight
 		case OrientationLandscapeRight:
 			nextOrientation = OrientationPortraitInverted
@@ -174,7 +174,7 @@ func (a *RotationAction) Rotate(ctx context.Context, direction RotationDirection
 		}
 	} else { // counterclockwise
 		switch current {
-		case OrientationPortrait:
+		case OrientationUnlocked, OrientationPortrait:
 			nextOrientation = OrientationLandscapeLeft
 		case OrientationLandscapeLeft:
 			nextOrientation = OrientationPortraitInverted

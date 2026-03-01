@@ -22,7 +22,7 @@ func NewFromString(addr string) (Address, error) {
 			return Address{}, errInvalidAddress(addr)
 		}
 	} else if len(addr) == 12 && !strings.Contains(addr, ":") {
-		for i := 0; i < 6; i++ {
+		for i := range 6 {
 			parts[i] = addr[i*2 : i*2+2]
 		}
 	} else {
@@ -46,7 +46,7 @@ func NewFromStringReverse(addr string) (Address, error) {
 		return Address{}, err
 	}
 	reversed := [6]byte{}
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		reversed[i] = a.Bytes[5-i]
 	}
 	return Address{Bytes: reversed}, nil

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/clintharrison/bueno/ace/address"
+	"github.com/clintharrison/bueno/quietly"
 	"github.com/holoplot/go-evdev"
 	"github.com/pilebones/go-udev/netlink"
 )
@@ -27,11 +28,12 @@ func ptrTo[T any](v T) *T {
 
 func (w *InputDeviceWatcher) Start(ctx context.Context) {
 	conn := netlink.UEventConn{}
-	if err := conn.Connect(netlink.KernelEvent); err != nil {
+	err := conn.Connect(netlink.KernelEvent)
+	if err != nil {
 		slog.Error("conn.Connect()", "error", err)
 		return
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	slog.Info("connected to udev netlink socket", "fd", conn.Fd, "addr", conn.Addr)
 
 	queue := make(chan netlink.UEvent)
@@ -88,7 +90,7 @@ func pollForDevice(path string) (*evdev.InputDevice, error) {
 
 func (w *InputDeviceWatcher) handleEvent(uevent netlink.UEvent) {
 	switch uevent.Action {
-	case "add":
+	case netlink.ADD:
 		// slog.Debug("udev event", "action", uevent.Action)
 		// for k, v := range uevent.Env {
 		// 	slog.Debug("  env", "key", k, "value", v)
@@ -99,7 +101,7 @@ func (w *InputDeviceWatcher) handleEvent(uevent netlink.UEvent) {
 			slog.Debug("ignoring event with no DEVNAME")
 			return
 		}
-		devPath := fmt.Sprintf("/dev/%s", devname)
+		devPath := "/dev/" + devname
 		// Unfortunately the event that has DEVNAME set is not the one that has properties like device name :(
 		// So, we have to open the device to get its name.
 		// We're also responding to this event concurrently with udevd running its rules, so
@@ -114,13 +116,13 @@ func (w *InputDeviceWatcher) handleEvent(uevent netlink.UEvent) {
 			uniq, err := dev.UniqueID()
 			if err != nil {
 				slog.Warn("dev.UniqueID()", "path", devPath, "error", err)
-				dev.Close()
+				quietly.Close(dev)
 				return
 			}
 			addr, err := address.NewFromStringReverse(uniq)
 			if err != nil {
 				slog.Warn("address.NewFromStringReverse()", "path", devPath, "unique_id", uniq, "error", err)
-				dev.Close()
+				quietly.Close(dev)
 				return
 			}
 
@@ -129,13 +131,15 @@ func (w *InputDeviceWatcher) handleEvent(uevent netlink.UEvent) {
 			})
 			if !matched {
 				slog.Debug("ignoring device not matching patterns", "addr", addr.ToString(), "path", dev.Path())
-				dev.Close()
+				quietly.Close(dev)
 				return
 			}
 		}
 		// If we get here, we have a device that matches our patterns (or we have no patterns)
 		w.AddFunc(dev)
-	case "remove":
+	case netlink.REMOVE:
 		w.RemoveFunc(uevent)
+	case netlink.CHANGE, netlink.MOVE, netlink.ONLINE, netlink.OFFLINE, netlink.BIND, netlink.UNBIND:
+		// do nothing
 	}
 }

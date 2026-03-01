@@ -9,6 +9,7 @@ go_library(
         "//ace",
         "//ace/address",
         "//colmi",
+        "//quietly",
         "//xkb",
         "@com_github_lmittmann_tint//:tint",
     ],

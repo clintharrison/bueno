@@ -7,8 +7,9 @@ package xkb
 #include <X11/Xlib.h>
 */
 import "C"
+
 import (
-	"fmt"
+	"errors"
 	"log/slog"
 	"runtime"
 	"unsafe"
@@ -27,22 +28,22 @@ type X11 struct {
 }
 
 //export onX11Error
-func onX11Error(display *C.Display, error *C.XErrorEvent) {
-	slog.Error("X11 error", "display", display, "error", error)
+func onX11Error(display *C.Display, err *C.XErrorEvent) {
+	slog.Error("X11 error", "display", display, "error", err)
 }
 
 func Open() (*X11, error) {
 	x := &X11{}
 	nameCStr := C.XDisplayName(nil)
 	if nameCStr == nil {
-		return nil, fmt.Errorf("failed to get X display name")
+		return nil, errors.New("failed to get X display name")
 	}
 	name := C.GoString(nameCStr)
 	slog.Info("opening X display", "name", name, "cstr", *nameCStr)
 
 	x.display = C.XOpenDisplay(nil)
 	if x.display == nil {
-		return nil, fmt.Errorf("failed to open X display")
+		return nil, errors.New("failed to open X display")
 	}
 	screen := C.XDefaultScreen(x.display)
 	x.rootWindow = C.XRootWindow(x.display, screen)
@@ -60,6 +61,50 @@ const (
 	XKPageUp   XKeysym = 0xFF55
 	XKPageDown XKeysym = 0xFF56
 )
+
+func (x *X11) KeyPress(keysym XKeysym) error {
+	wnd := x.getActiveWindow()
+	if wnd == 0 {
+		slog.Warn("no active window, cannot send key event")
+		return errors.New("no active window")
+	}
+	keycode := C.XKeysymToKeycode(x.display, C.KeySym(keysym))
+
+	evt := C.XKeyEvent{
+		display:   x.display,
+		window:    wnd,
+		subwindow: C.None,
+		keycode:   C.uint(keycode),
+		// TODO: handle state (e.g. modifier keys)? is that ever used for anything on kindle?
+		state:       0,
+		root:        x.rootWindow,
+		same_screen: C.True,
+		_type:       C.KeyPress,
+		// xdotool doesn't know if these need to be set, and neither do I.
+		// https://github.com/jordansissel/xdotool/blob/33092d8a74d60c9ad3ab39c4f05b90e047ea51d8/xdo.c#L1517-L1518
+		x:      C.int(1),
+		y:      C.int(1),
+		x_root: C.int(1),
+		y_root: C.int(1),
+	}
+
+	slog.Debug("calling XSendEvent", "keysym", keysym, "keycode", keycode, "type", "key_press", "wnd", wnd, "evt", evt)
+	C.XSendEvent(x.display, wnd, C.True, C.KeyPressMask, (*C.XEvent)(unsafe.Pointer(&evt)))
+
+	evt._type = C.KeyRelease
+	slog.Debug("calling XSendEvent", "keysym", keysym, "keycode", keycode, "type", "key_release", "wnd", wnd, "evt", evt)
+	C.XSendEvent(x.display, wnd, C.True, C.KeyPressMask, (*C.XEvent)(unsafe.Pointer(&evt)))
+
+	// xdotool doesn't know if this is needed.
+	// https://github.com/jordansissel/xdotool/blob/33092d8a74d60c9ad3ab39c4f05b90e047ea51d8/xdo.c#L1103-L1104
+	//
+	// It is. Otherwise, we'll end up with an event lingering in the X event queue,
+	// and this ends up with an off-by-one error if we send multiple key events in quick succession,
+	// and a spurious key event at program exit?
+	C.XFlush(x.display)
+
+	return nil
+}
 
 func (x *X11) getActiveWindow() C.Window {
 	atom := C.XInternAtom(x.display, C.CString("_NET_ACTIVE_WINDOW"), C.int(1))
@@ -98,48 +143,4 @@ func (x *X11) getActiveWindow() C.Window {
 	C.free(unsafe.Pointer(prop))
 	slog.Debug("got active window", "activeWindowID", activeWindowID, "actualType", actualType, "actualFormat", actualFormat, "nItems", nItems, "bytesAfter", bytesAfter)
 	return C.Window(activeWindowID)
-}
-
-func (x *X11) KeyPress(keysym XKeysym) error {
-	wnd := x.getActiveWindow()
-	if wnd == 0 {
-		slog.Warn("no active window, cannot send key event")
-		return fmt.Errorf("no active window")
-	}
-	keycode := C.XKeysymToKeycode(x.display, C.KeySym(keysym))
-
-	evt := C.XKeyEvent{
-		display:   x.display,
-		window:    wnd,
-		subwindow: C.None,
-		keycode:   C.uint(keycode),
-		// TODO: handle state (e.g. modifier keys)? is that ever used for anything on kindle?
-		state:       0,
-		root:        x.rootWindow,
-		same_screen: C.True,
-		_type:       C.KeyPress,
-		// xdotool doesn't know if these need to be set, and neither do I.
-		// https://github.com/jordansissel/xdotool/blob/33092d8a74d60c9ad3ab39c4f05b90e047ea51d8/xdo.c#L1517-L1518
-		x:      C.int(1),
-		y:      C.int(1),
-		x_root: C.int(1),
-		y_root: C.int(1),
-	}
-
-	slog.Debug("calling XSendEvent", "keysym", keysym, "keycode", keycode, "type", "key_press", "wnd", wnd, "evt", evt)
-	C.XSendEvent(x.display, wnd, C.True, C.KeyPressMask, (*C.XEvent)(unsafe.Pointer(&evt)))
-
-	evt._type = C.KeyRelease
-	slog.Debug("calling XSendEvent", "keysym", keysym, "keycode", keycode, "type", "key_release", "wnd", wnd, "evt", evt)
-	C.XSendEvent(x.display, wnd, C.True, C.KeyPressMask, (*C.XEvent)(unsafe.Pointer(&evt)))
-
-	// xdotool doesn't know if this is needed.
-	// https://github.com/jordansissel/xdotool/blob/33092d8a74d60c9ad3ab39c4f05b90e047ea51d8/xdo.c#L1103-L1104
-	//
-	// It is. Otherwise, we'll end up with an event lingering in the X event queue,
-	// and this ends up with an off-by-one error if we send multiple key events in quick succession,
-	// and a spurious key event at program exit?
-	C.XFlush(x.display)
-
-	return nil
 }

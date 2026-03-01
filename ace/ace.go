@@ -5,8 +5,10 @@ package ace
 //#cgo LDFLAGS: -lace_bt -lace_osal
 //#include "ace.go.h"
 import "C"
+
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"iter"
@@ -34,7 +36,7 @@ var (
 	scanInstanceHandle C.aceBT_scanInstanceHandle
 	scanResultFunc     func(adapter Adapter, device ScanResult)
 	shutdownFuncs      []func()
-	// this is used repeatedly for any notify messages
+	// This is used repeatedly for any notify messages.
 	notifyCh chan []byte
 
 	// these largely signal completion of async operations
@@ -122,6 +124,7 @@ func (s *DeviceService) Characteristics() iter.Seq[DeviceCharacteristic] {
 			// 	"write_type", desc.write_type)
 			writeType := BLEWriteType(desc.write_type)
 			char := DeviceCharacteristic{
+				Handle:    uint16(record.handle),
 				UUID:      UUIDFromACEUUIDLE(record.uuid),
 				Service:   s,
 				IsNotify:  bool(desc.is_notify),
@@ -146,11 +149,11 @@ func UUIDFromGATTCharRecord(charRec *C.aceBT_bleGattCharacteristicsValue_t) uuid
 type Adapter interface {
 	Scan(f func(adapter Adapter, device ScanResult)) error
 	StopScan() error
-	RadioState() (AceRadioState, error)
+	RadioState() (RadioState, error)
 	EnableRadio() error
 	GetServices(conn ConnHandle) ([]DeviceService, error)
 	Connect(addr address.Address) (ConnHandle, error)
-	Disconnect(ConnHandle) error
+	Disconnect(conn ConnHandle) error
 	Pair(addr address.Address) error
 	PairIfNeeded(addr address.Address) error
 	IsBonded(addr address.Address) (bool, error)
@@ -168,11 +171,11 @@ type DeviceCharacteristic struct {
 	aceChar   *C.aceBT_bleGattCharacteristicsValue_t
 }
 
-type AceResponseType int
+type ResponseType int
 
 const (
 	// writeresponse not required
-	BLEWriteTypeRespNo AceResponseType = iota
+	BLEWriteTypeRespNo ResponseType = iota
 
 	// write response required
 	BLEWriteTypeRespRequired
@@ -186,8 +189,9 @@ func (dc *DeviceCharacteristic) SetNotify(conn ConnHandle) (chan []byte, error) 
 	defer cancel()
 	bleWriteDescCh = make(chan struct{})
 	slog.Debug("SetNotify()", "conn", conn, "characteristic", dc.UUID.String())
-	if err := errForStatus(C.cgo_bleSetNotification(
-		sessionHandle, conn.conn, dc.aceChar, true)); err != nil {
+	err := errForStatus(C.cgo_bleSetNotification(
+		sessionHandle, conn.conn, dc.aceChar, true))
+	if err != nil {
 		return nil, err
 	}
 	select {
@@ -204,22 +208,19 @@ func (dc *DeviceCharacteristic) SetNotify(conn ConnHandle) (chan []byte, error) 
 func (dc *DeviceCharacteristic) Write(conn ConnHandle, data []uint8) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	slog.Info("Write()", "conn", conn, "data", fmt.Sprintf("%x", data))
+	slog.Debug("Write()", "conn", conn, "data", hex.EncodeToString(data))
 
 	charsWriteCh = make(chan struct{})
 	// warning, the characteristic is mutated in-place
-	buffLen := len(data)
-	if buffLen > 20 {
-		buffLen = 20
-	}
-	if err := errForStatus(C.cgo_bleWriteCharacteristics(
+	err := errForStatus(C.cgo_bleWriteCharacteristics(
 		/* aceBT_sessionHandle*/ sessionHandle,
 		/*aceBT_bleConnHandle*/ conn.conn,
 		/* aceBT_bleGattCharacteristicsValue_t* */ dc.aceChar,
 		/* aceBT_responseType_t */ C.ACEBT_BLE_WRITE_TYPE_RESP_REQUIRED,
 		(*C.uint8_t)(unsafe.SliceData(data)),
 		C.size_t(len(data)),
-	)); err != nil {
+	))
+	if err != nil {
 		slog.Error("Failed to write characteristic", "error", err)
 		return err
 	}
@@ -258,7 +259,8 @@ func (a *aceAdapter) Close() {
 	}
 	if sessionHandle != nil {
 		slog.Info("Closing ACE session", "sessionHandle", fmt.Sprintf("%p", sessionHandle))
-		if err := errForStatus(C.aceBT_closeSession(sessionHandle)); err != nil {
+		err := errForStatus(C.aceBT_closeSession(sessionHandle))
+		if err != nil {
 			slog.Error("Failed to close ACE session", "sessionHandle", fmt.Sprintf("%p", sessionHandle), "error", err)
 			sessionHandle = nil
 		} else {
@@ -272,7 +274,8 @@ func (a *aceAdapter) IsBonded(addr address.Address) (bool, error) {
 	var deviceList *C.aceBT_deviceList_t
 	// must call aceBT_freeDeviceList on deviceList when done
 	aceStatus := C.aceBT_getBondedDevices((**C.aceBT_deviceList_t)(unsafe.Pointer(&deviceList)))
-	if err := errForStatus(aceStatus); err != nil {
+	err := errForStatus(aceStatus)
+	if err != nil {
 		slog.Error("Failed to get bonded devices", "status", aceStatus, "error", err)
 		return false, err
 	}
@@ -288,23 +291,21 @@ func (a *aceAdapter) IsBonded(addr address.Address) (bool, error) {
 		if NewAddressFromAce(device) == addr {
 			slog.Debug("Found bonded device", "address", addr.ToString())
 			return true, nil
-		} else {
-			slog.Debug("Device bonded but not recognized", "address", NewAddressFromAce(device).ToString())
 		}
+		slog.Debug("Device bonded but not recognized", "address", NewAddressFromAce(device).ToString())
 	}
 	return false, nil
 }
 
 func UUIDFromACEUUIDLE(aceUUID C.aceBT_uuid_t) uuid.UUID {
 	ret := make([]byte, 16)
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		ret[i] = byte(aceUUID.uu[15-i])
 	}
 	return uuid.Must(uuid.FromBytes(ret))
 }
 
-type aceAdapter struct {
-}
+type aceAdapter struct{}
 
 func (a *aceAdapter) Pair(addr address.Address) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -316,7 +317,8 @@ func (a *aceAdapter) Pair(addr address.Address) error {
 		slog.Info("Already paired", "address", addr.ToString(), "status", StatusFromCode(status))
 		return nil
 	}
-	if err := errForStatus(status); err != nil {
+	err := errForStatus(status)
+	if err != nil {
 		return fmt.Errorf("failed to pair device %s: %w", addr.ToString(), err)
 	}
 
@@ -350,10 +352,12 @@ func Enable() (Adapter, error) {
 func initAdapter() (*aceAdapter, error) {
 	runtime.LockOSThread()
 	a := &aceAdapter{}
-	if err := errForStatus(C.ace_init()); err != nil {
+	err := errForStatus(C.ace_init())
+	if err != nil {
 		return nil, err
 	}
-	if err := a.OpenSession(); err != nil {
+	err = a.OpenSession()
+	if err != nil {
 		return nil, err
 	}
 
@@ -371,7 +375,8 @@ func initAdapter() (*aceAdapter, error) {
 		}
 	}
 
-	if err := a.register(); err != nil {
+	err = a.register()
+	if err != nil {
 		slog.Error("Failed to register ACE callbacks", "error", err)
 		return nil, err
 	}
@@ -386,14 +391,14 @@ func (a *aceAdapter) Scan(f func(adapter Adapter, device ScanResult)) error {
 		scanResultFunc = f
 		return nil
 	})
-
 	if err != nil {
 		slog.Error("Failed to start scan", "error", err)
 		return err
 	}
 	clientID := (C.aceBT_BeaconClientId)(C.ACE_BEACON_CLIENT_TYPE_MONEYPENNY)
 	aceStatus := C.aceBT_startBeaconScanWithDefaultParams(sessionHandle, clientID, &scanInstanceHandle)
-	if err := errForStatus(aceStatus); err != nil {
+	err = errForStatus(aceStatus)
+	if err != nil {
 		slog.Error("Failed to start beacon scan", "status", aceStatus, "error", err)
 		return err
 	}
@@ -406,7 +411,8 @@ func (a *aceAdapter) StopScan() error {
 			return errors.New("no scan in progress")
 		}
 		aceStatus := C.aceBT_stopBeaconScan(scanInstanceHandle)
-		if err := errForStatus(aceStatus); err != nil {
+		err := errForStatus(aceStatus)
+		if err != nil {
 			slog.Error("Failed to stop beacon scan", "status", aceStatus, "error", err)
 			return err
 		}
@@ -423,7 +429,8 @@ func (a *aceAdapter) StopScan() error {
 func (a *aceAdapter) OpenSession() error {
 	sessionType := (C.aceBT_sessionType_t)(C.ACEBT_SESSION_TYPE_DUAL_MODE)
 	status := C.aceBT_openSession(sessionType, &C.session_callbacks, &sessionHandle)
-	if err := errForStatus(status); err != nil {
+	err := errForStatus(status)
+	if err != nil {
 		slog.Error("Failed to open ACE session", "status", status, "error", err)
 		return err
 	}
@@ -439,11 +446,12 @@ func (a *aceAdapter) EnableRadio() error {
 	}
 	slog.Info("Enabling radio", "sessionHandle", fmt.Sprintf("%p", sessionHandle))
 
-	if err := errForStatus(C.aceBT_enableRadio(sessionHandle)); err != nil {
+	err := errForStatus(C.aceBT_enableRadio(sessionHandle))
+	if err != nil {
 		slog.Error("failed to enable radio", "error", err)
 	}
 
-	for i := 0; i < maxRetries; i++ {
+	for range maxRetries {
 		radioState, err := a.RadioState()
 		if err != nil {
 			slog.Error("failed to get radio state", "error", err)
@@ -458,60 +466,10 @@ func (a *aceAdapter) EnableRadio() error {
 	return fmt.Errorf("radio did not enable after %d retries", maxRetries)
 }
 
-func (a *aceAdapter) register() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	bleRegisterCh = make(chan struct{})
-	bleStatus := C.aceBT_bleRegister(sessionHandle, &C.ble_callbacks)
-	if err := errForStatus(bleStatus); err != nil {
-		slog.Error("Failed to register BLE callbacks", "status", bleStatus, "error", err)
-		return err
-	}
-	select {
-	case <-bleRegisterCh:
-		// callback closed the channel
-	case <-ctx.Done():
-		return fmt.Errorf("timed out waiting for BLE client registration: %w", ctx.Err())
-	}
-
-	bleStatus = C.aceBt_bleRegisterGattClient(
-		sessionHandle,
-		&C.ble_gatt_client_callbacks,
-		// This seems to be what the legacy function called by the CLI does?
-		C.ACE_BT_BLE_APPID_GADGETS,
-	)
-	if err := errForStatus(bleStatus); err != nil {
-		slog.Error("Failed to register GATT client", "status", bleStatus, "error", err)
-		return err
-	}
-
-	beaconRegisterCh = make(chan struct{})
-	bleStatus = C.aceBT_RegisterBeaconClient(
-		sessionHandle,
-		&C.beacon_callbacks,
-	)
-	if err := errForStatus(bleStatus); err != nil {
-		slog.Error("Failed to register beacon client", "status", bleStatus, "error", err)
-		return err
-	}
-
-	select {
-	case <-beaconRegisterCh:
-		// callback closed the channel
-	case <-ctx.Done():
-		slog.Error("Timed out waiting for beacon client registration", "err", ctx.Err())
-		return fmt.Errorf("timed out waiting for beacon client registration")
-	}
-
-	slog.Debug("Registered ACE callbacks: BLE, beacon, GATTC", "sessionHandle", fmt.Sprintf("%p", sessionHandle))
-
-	return nil
-}
-
 func (a *aceAdapter) Disconnect(conn ConnHandle) error {
 	gattDisconnectCh = make(chan struct{})
-	if err := errForStatus(C.aceBT_bleDisconnect(conn.conn)); err != nil {
+	err := errForStatus(C.aceBT_bleDisconnect(conn.conn))
+	if err != nil {
 		slog.Error("Failed to disconnect from device", "conn_handle", unsafe.Pointer(conn.conn), "error", err)
 		return err
 	}
@@ -520,7 +478,7 @@ func (a *aceAdapter) Disconnect(conn ConnHandle) error {
 		slog.Info("Disconnected from device (and channel closed by callback)", "conn_handle", unsafe.Pointer(conn.conn))
 	case <-time.After(10 * time.Second):
 		slog.Error("Timed out waiting for disconnect", "conn_handle", unsafe.Pointer(conn.conn))
-		return fmt.Errorf("timed out waiting for disconnect after 10 seconds")
+		return errors.New("timed out waiting for disconnect after 10 seconds")
 	}
 	C.aceBT_bleDeRegisterGattClient(sessionHandle)
 	sessionHandle = nil
@@ -562,7 +520,8 @@ func (a *aceAdapter) Connect(addr address.Address) (ConnHandle, error) {
 		/* autoconnect */ false,
 		/* aceBt_bleConnPriority_t */ C.ACE_BT_BLE_CONN_PRIO_MEDIUM,
 	)
-	if err := errForStatus(status); err != nil {
+	err := errForStatus(status)
+	if err != nil {
 		slog.Error("Failed to connect to device", "address", addr.ToString(), "error", err)
 		return ConnHandle{}, err
 	}
@@ -588,7 +547,7 @@ func (a *aceAdapter) GetServices(conn ConnHandle) ([]DeviceService, error) {
 	select {
 	case <-discoveryCtx.Done():
 		slog.Error("Timed out waiting for GATT services to be discovered")
-		return nil, fmt.Errorf("timed out waiting for GATT services to be discovered")
+		return nil, errors.New("timed out waiting for GATT services to be discovered")
 	case <-gattcSvcDiscoveryCh:
 		slog.Info("GATT services discovered successfully")
 	}
@@ -601,7 +560,7 @@ func (a *aceAdapter) GetServices(conn ConnHandle) ([]DeviceService, error) {
 	select {
 	case <-dbCtx.Done():
 		slog.Error("Timed out waiting for GATT DB")
-		return nil, fmt.Errorf("timed out waiting for GATT DB")
+		return nil, errors.New("timed out waiting for GATT DB")
 	case <-gattcDBCh:
 		slog.Info("GATT DB populated successfully")
 	}
@@ -617,20 +576,67 @@ func (a *aceAdapter) GetServices(conn ConnHandle) ([]DeviceService, error) {
 	return deviceServices, nil
 }
 
+func (a *aceAdapter) register() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	bleRegisterCh = make(chan struct{})
+	bleStatus := C.aceBT_bleRegister(sessionHandle, &C.ble_callbacks)
+	err := errForStatus(bleStatus)
+	if err != nil {
+		slog.Error("Failed to register BLE callbacks", "status", bleStatus, "error", err)
+		return err
+	}
+	select {
+	case <-bleRegisterCh:
+		// callback closed the channel
+	case <-ctx.Done():
+		return fmt.Errorf("timed out waiting for BLE client registration: %w", ctx.Err())
+	}
+
+	bleStatus = C.aceBt_bleRegisterGattClient(
+		sessionHandle,
+		&C.ble_gatt_client_callbacks,
+		// This seems to be what the legacy function called by the CLI does?
+		C.ACE_BT_BLE_APPID_GADGETS,
+	)
+	err = errForStatus(bleStatus)
+	if err != nil {
+		slog.Error("Failed to register GATT client", "status", bleStatus, "error", err)
+		return err
+	}
+
+	beaconRegisterCh = make(chan struct{})
+	bleStatus = C.aceBT_RegisterBeaconClient(
+		sessionHandle,
+		&C.beacon_callbacks,
+	)
+	err = errForStatus(bleStatus)
+	if err != nil {
+		slog.Error("Failed to register beacon client", "status", bleStatus, "error", err)
+		return err
+	}
+
+	select {
+	case <-beaconRegisterCh:
+		// callback closed the channel
+	case <-ctx.Done():
+		slog.Error("Timed out waiting for beacon client registration", "err", ctx.Err())
+		return errors.New("timed out waiting for beacon client registration")
+	}
+
+	slog.Debug("Registered ACE callbacks: BLE, beacon, GATTC", "sessionHandle", fmt.Sprintf("%p", sessionHandle))
+
+	return nil
+}
+
 func deviceServiceFromAceService(svc *C.aceBT_bleGattsService_t) DeviceService {
 	return DeviceService{
 		UUID:   UUIDFromACEUUIDLE(svc.uuid),
 		Handle: uint16(svc.handle),
+		Type:   GattServiceType(svc.serviceType),
 		svc:    svc,
 	}
-}
-
-func (a *aceAdapter) DumpGATTDB(conn ConnHandle) error {
-	// if len(gattService) == 0 {
-	// 	slog.Error("No GATT services available")
-	// 	return nil
-	// }
-	return nil
 }
 
 //export advChangeCallback
@@ -641,7 +647,8 @@ func advChangeCallback(advInstance C.aceBT_advInstanceHandle, state C.aceBT_beac
 //export onBleRegistered
 func onBleRegistered(status C.aceBT_status_t) {
 	defer close(bleRegisterCh)
-	if err := errForStatus(status); err != nil {
+	err := errForStatus(status)
+	if err != nil {
 		slog.Error("BLE registration failed", "status", status, "error", err)
 		return
 	}
@@ -649,7 +656,7 @@ func onBleRegistered(status C.aceBT_status_t) {
 }
 
 //export scanResultCallback
-func scanResultCallback(scanInstance C.aceBT_scanInstanceHandle, record *C.aceBT_BeaconScanRecord_t) {
+func scanResultCallback(_ C.aceBT_scanInstanceHandle, record *C.aceBT_BeaconScanRecord_t) {
 	scanResultFunc(adapter, ScanResult{
 		record: record,
 		addr:   NewAddressFromAce(record.addr),
@@ -658,7 +665,7 @@ func scanResultCallback(scanInstance C.aceBT_scanInstanceHandle, record *C.aceBT
 }
 
 //export scanChangeCallback
-func scanChangeCallback(scanInstance C.aceBT_scanInstanceHandle, state C.aceBT_beaconScanState_t, interval uint32, window uint32) {
+func scanChangeCallback(_ C.aceBT_scanInstanceHandle, state C.aceBT_beaconScanState_t, interval uint32, window uint32) {
 	stateStr := "unknown"
 	switch state {
 	case C.ACEBT_BEACON_SCAN_FAILED:
@@ -678,7 +685,8 @@ func scanChangeCallback(scanInstance C.aceBT_scanInstanceHandle, state C.aceBT_b
 //export onBeaconClientRegistered
 func onBeaconClientRegistered(status C.ace_status_t) {
 	defer close(beaconRegisterCh)
-	if err := errForStatus(status); err != nil {
+	err := errForStatus(status)
+	if err != nil {
 		slog.Error("Beacon client registration failed", "status", status, "error", err)
 		return
 	}
@@ -789,7 +797,8 @@ func onBondStateChanged(status C.aceBT_status_t, remoteAddr *C.aceBT_bdAddr_t, s
 //export onBleGattcServiceRegistered
 func onBleGattcServiceRegistered(status C.aceBT_status_t) {
 	slog.Info("BLE GATT service registered", "status", status)
-	if err := errForStatus(status); err != nil {
+	err := errForStatus(status)
+	if err != nil {
 		slog.Error("Failed to register GATT service", "error", err)
 		return
 	}
@@ -872,7 +881,8 @@ func onBleGattcGetGattDb(connHandle C.aceBT_bleConnHandle, gattService *C.aceBT_
 	}
 
 	var clonedServices *C.aceBT_bleGattsService_t
-	if err := errForStatus(C.aceBT_bleCloneGattService(&clonedServices, gattService, C.int(numSvc))); err != nil {
+	err := errForStatus(C.aceBT_bleCloneGattService(&clonedServices, gattService, C.int(numSvc)))
+	if err != nil {
 		slog.Error("Failed to clone GATT service", "conn_handle", unsafe.Pointer(connHandle), "error", err)
 		return
 	}
@@ -894,7 +904,8 @@ func onBleGattcGetGattDb(connHandle C.aceBT_bleConnHandle, gattService *C.aceBT_
 		if clonedServices != nil {
 			slog.Info("cleaning up gatt service", "gatt_service", unsafe.Pointer(clonedServices))
 			status := C.aceBT_bleCleanupGattService(clonedServices, C.int(numSvc))
-			if err := errForStatus(status); err != nil {
+			err := errForStatus(status)
+			if err != nil {
 				slog.Error("Failed to cleanup GATT service", "conn_handle", unsafe.Pointer(connHandle), "error", err)
 			} else {
 				slog.Debug("Cleaned up GATT service", "conn_handle", unsafe.Pointer(connHandle))

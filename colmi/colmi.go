@@ -10,18 +10,24 @@ import (
 
 // See https://colmi.puxtril.com/ for some documentation of the two characteristics.
 
-var BigDataServiceUUID = uuid.MustParse("de5bf728-d711-4e47-af26-65e3012a5dc7")
-var BigDataWriteUUID = uuid.MustParse("de5bf72a-d711-4e47-af26-65e3012a5dc7")
-var BigDataReadUUID = uuid.MustParse("de5bf729-d711-4e47-af26-65e3012a5dc7")
+var (
+	BigDataServiceUUID = uuid.MustParse("de5bf728-d711-4e47-af26-65e3012a5dc7")
+	BigDataWriteUUID   = uuid.MustParse("de5bf72a-d711-4e47-af26-65e3012a5dc7")
+	BigDataReadUUID    = uuid.MustParse("de5bf729-d711-4e47-af26-65e3012a5dc7")
+)
 
-var CommandServiceUUID = uuid.MustParse("6e40fff0-b5a3-f393-e0a9-e50e24dcca9e")
-var CommandWriteUUID = uuid.MustParse("6e400002-b5a3-f393-e0a9-e50e24dcca9e")
-var CommandReadUUID = uuid.MustParse("6e400003-b5a3-f393-e0a9-e50e24dcca9e")
+var (
+	CommandServiceUUID = uuid.MustParse("6e40fff0-b5a3-f393-e0a9-e50e24dcca9e")
+	CommandWriteUUID   = uuid.MustParse("6e400002-b5a3-f393-e0a9-e50e24dcca9e")
+	CommandReadUUID    = uuid.MustParse("6e400003-b5a3-f393-e0a9-e50e24dcca9e")
+)
 
 // DeviceInfoServiceUUID is the well-known Device Information service
-var DeviceInfoServiceUUID = uuid.MustParse("0000180A-0000-1000-8000-00805F9B34FB")
-var DeviceInfoHardwareUUID = uuid.MustParse("00002A27-0000-1000-8000-00805F9B34FB")
-var DeviceInfoFirmwareUUID = uuid.MustParse("00002A26-0000-1000-8000-00805F9B34FB")
+var (
+	DeviceInfoServiceUUID  = uuid.MustParse("0000180A-0000-1000-8000-00805F9B34FB")
+	DeviceInfoHardwareUUID = uuid.MustParse("00002A27-0000-1000-8000-00805F9B34FB")
+	DeviceInfoFirmwareUUID = uuid.MustParse("00002A26-0000-1000-8000-00805F9B34FB")
+)
 
 func MakePacket(command byte, subdata []byte) ([]byte, error) {
 	packet := [16]byte{}
@@ -29,7 +35,7 @@ func MakePacket(command byte, subdata []byte) ([]byte, error) {
 	if len(subdata) > 15 {
 		return nil, fmt.Errorf("subdata too long: %d bytes (max 15)", len(subdata))
 	}
-	for i, d := range subdata {
+	for i, d := range subdata { //#nosec
 		packet[i+1] = d
 	}
 	sum := int32(0)
@@ -45,7 +51,7 @@ func MakeBlinkTwicePacket() ([]byte, error) {
 	return MakePacket(15, []byte{})
 }
 
-type CameraAction int
+type CameraAction byte
 
 // All of these are from https://colmi.puxtril.com/commands/#camera
 // but I've only tested enable/disable and take photo.

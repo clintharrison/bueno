@@ -15,6 +15,7 @@ import (
 	"github.com/clintharrison/bueno/ace"
 	"github.com/clintharrison/bueno/ace/address"
 	"github.com/clintharrison/bueno/colmi"
+	"github.com/clintharrison/bueno/quietly"
 	"github.com/clintharrison/bueno/xkb"
 )
 
@@ -56,7 +57,8 @@ func findColmiDevice(adapter ace.Adapter) (address.Address, error) {
 			deviceAddr = device.Address()
 			slog.Info("found Colmi R02 device, stopping scan", "name", device.Name(), "address", device.Address().ToString(), "rssi", device.RSSI(), "tx_power", device.TxPower(), "adapter", adapter)
 			// Stop the scan after finding the device
-			if err := adapter.StopScan(); err != nil {
+			err := adapter.StopScan()
+			if err != nil {
 				slog.Error("failed to stop scan", "error", err)
 			}
 			close(deviceFoundChan)
@@ -75,7 +77,8 @@ func findColmiDevice(adapter ace.Adapter) (address.Address, error) {
 		// channel closed and device found
 	case <-time.After(10 * time.Second):
 		slog.Info("No device found within 10 seconds, stopping scan")
-		if err := adapter.StopScan(); err != nil {
+		err := adapter.StopScan()
+		if err != nil {
 			slog.Error("Failed to stop scan", "error", err)
 			return address.Address{}, err
 		}
@@ -86,15 +89,22 @@ func findColmiDevice(adapter ace.Adapter) (address.Address, error) {
 }
 
 func main() {
+	err := doMain()
+	if err != nil {
+		slog.Error("Application error", "error", err)
+		os.Exit(1)
+	}
+}
+
+func doMain() error {
 	ctx := context.Background()
 	configureLogger()
 
 	x11, err := xkb.Open()
 	if err != nil {
-		slog.Error("Failed to open XKB", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to open XKB: %w", err)
 	}
-	defer x11.Close()
+	defer quietly.Close(x11)
 
 	ace.DropPrivileges()
 
@@ -104,43 +114,46 @@ func main() {
 	if len(os.Args) >= 2 {
 		deviceAddr, err = address.NewFromString(os.Args[1])
 		if err != nil {
-			slog.Error("First arg expected to be addr", "error", err)
-			os.Exit(1)
+			return fmt.Errorf("first arg should be an address: %w", err)
 		}
 	}
 
 	adapter, err := ace.Enable()
 	if err != nil {
-		slog.Error("Failed to initialize ACE adapter", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to initialize ACE adapter: %w", err)
 	}
 	defer adapter.Close()
 
 	if deviceAddr == (address.Address{}) {
 		deviceAddr, err = findColmiDevice(adapter)
 		if err != nil {
-			slog.Error("Failed to start scan", "error", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to find Colmi R02 device: %w", err)
 		}
 	}
 
-	slog.Info("Connecting to device", "address", deviceAddr.ToString())
+	slog.Info("Connecting to device", "address", deviceAddr.ToString()) //#nosec
 	result, err := connectAndFindCharacteristics(ctx, adapter, deviceAddr)
 	if err != nil {
-		slog.Error("Failed to connect to device", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to connect to device: %w", err)
 	}
-	defer adapter.Disconnect(result.conn)
+	defer func() { _ = adapter.Disconnect(result.conn) }()
 
-	enableGestures(ctx, result, func(data []byte) {
+	err = enableGestures(ctx, result, func(data []byte) {
 		isPhotoAction := colmi.IsCameraTakePhotoAction(data)
 		slog.Info("Received notification data", "data", data, "is_camera_action", isPhotoAction)
 		if isPhotoAction {
-			x11.KeyPress(xkb.XKPageDown)
+			err := x11.KeyPress(xkb.XKPageDown)
+			if err != nil {
+				slog.Error("Failed to send key press", "error", err)
+			}
 		} else {
 			slog.Debug("unrecognized message received", "data", data)
 		}
 	})
+	if err != nil {
+		return fmt.Errorf("failed to enable gestures: %w", err)
+	}
+	return nil
 }
 
 type ConnectResult struct {
@@ -150,7 +163,7 @@ type ConnectResult struct {
 }
 
 func connectAndFindCharacteristics(_ context.Context, adapter ace.Adapter, addr address.Address) (ConnectResult, error) {
-	slog.Info("Connecting to device", "address", addr.ToString())
+	slog.Info("Connecting to device", "address", addr.ToString()) //#nosec
 	conn, err := adapter.Connect(addr)
 	if err != nil {
 		return ConnectResult{}, err
@@ -176,7 +189,7 @@ func connectAndFindCharacteristics(_ context.Context, adapter ace.Adapter, addr 
 		}
 	}
 
-	slog.Debug("found command chars", "read", fmt.Sprintf("%p", commandReadChr), "write", fmt.Sprintf("%p", commandWriteChr))
+	slog.Debug("found command chars", "read", fmt.Sprintf("%p", commandReadChr), "write", fmt.Sprintf("%p", commandWriteChr)) //#nosec
 	return ConnectResult{
 		conn:      conn,
 		readChar:  commandReadChr,

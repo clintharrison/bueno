@@ -1,5 +1,5 @@
-// Package log contains convenience functions for using log/slog.
-package log
+// Package logutil contains convenience functions for using log/slog.
+package logutil
 
 import (
 	"log/slog"

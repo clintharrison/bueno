@@ -9,6 +9,7 @@ go_library(
         "//kindle-keymap/actions",
         "//kindle-keymap/config",
         "//kindle-keymap/lipcaction",
+        "//quietly",
         "//xkb",
         "@com_github_holoplot_go_evdev//:go-evdev",
     ],

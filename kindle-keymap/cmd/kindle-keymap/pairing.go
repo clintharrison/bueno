@@ -17,11 +17,12 @@ func runSelfAsPairingProcess(ctx context.Context) error {
 		slog.Error("os.Readlink()", "error", err)
 		return err
 	}
-	cmd := exec.Command(selfPath)
+	cmd := exec.CommandContext(ctx, selfPath)
 	cmd.Env = append(os.Environ(), "KINDLE_KEYMAP_RUN_BLUETOOTH_PAIR=1")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
+	err = cmd.Start()
+	if err != nil {
 		slog.Error("cmd.Start()", "error", err)
 		return err
 	}
@@ -35,7 +36,8 @@ func runSelfAsPairingProcess(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		slog.Info("pairing process context cancelled, killing pairing process", "pid", cmd.Process.Pid)
-		if err := cmd.Process.Kill(); err != nil {
+		err := cmd.Process.Kill()
+		if err != nil {
 			slog.Error("failed to kill pairing process", "error", err)
 		}
 	case err := <-processDone:
@@ -69,7 +71,8 @@ func runPairProcessInner(ctx context.Context, cfg *config.Config) error {
 			addr := device.Address()
 			addrStr := addr.ToString()
 			slog.Info("trying to connect", "device", addrStr)
-			if err := adapter.PairIfNeeded(addr); err != nil {
+			err := adapter.PairIfNeeded(addr)
+			if err != nil {
 				slog.Error("failed to pair with device", "error", err, "device", addrStr)
 			} else {
 				deviceFoundChan <- device.Address()
@@ -85,7 +88,8 @@ func runPairProcessInner(ctx context.Context, cfg *config.Config) error {
 		devicesPaired++
 	case <-ctx.Done():
 		slog.Info("pairing process context cancelled, stopping scan", "paired_devices", devicesPaired)
-		if err := adapter.StopScan(); err != nil {
+		err := adapter.StopScan()
+		if err != nil {
 			slog.Error("failed to stop scan", "error", err)
 		}
 		return ctx.Err()
