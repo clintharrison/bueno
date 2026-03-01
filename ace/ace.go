@@ -44,7 +44,7 @@ var (
 	bleRegisterCh       chan struct{}
 	beaconRegisterCh    chan struct{}
 	connectCh           chan ConnHandle
-	pairCh              chan struct{}
+	pairCh              chan pairingResult
 	gattcSvcDiscoveryCh chan struct{}
 	gattcDBCh           chan struct{}
 	gattDisconnectCh    chan struct{}
@@ -181,6 +181,14 @@ const (
 	BLEWriteTypeRespRequired
 )
 
+func UUIDFromACEUUIDLE(aceUUID C.aceBT_uuid_t) uuid.UUID {
+	ret := make([]byte, 16)
+	for i := range 16 {
+		ret[i] = byte(aceUUID.uu[15-i])
+	}
+	return uuid.Must(uuid.FromBytes(ret))
+}
+
 func (dc *DeviceCharacteristic) SetNotify(conn ConnHandle) (chan []byte, error) {
 	if notifyCh == nil {
 		notifyCh = make(chan []byte)
@@ -236,6 +244,8 @@ func (dc *DeviceCharacteristic) Write(conn ConnHandle, data []uint8) error {
 	return nil
 }
 
+type aceAdapter struct{}
+
 func (a *aceAdapter) GetCharacteristics(svc *DeviceService) ([]DeviceCharacteristic, error) {
 	slog.Debug("Getting characteristics for service", "uuid", svc.UUID.String(), "handle", svc.Handle, "numChars", svc.svc.no_characteristics)
 	chars := make([]DeviceCharacteristic, 0, svc.svc.no_characteristics)
@@ -258,13 +268,13 @@ func (a *aceAdapter) Close() {
 		f()
 	}
 	if sessionHandle != nil {
-		slog.Info("Closing ACE session", "sessionHandle", fmt.Sprintf("%p", sessionHandle))
+		slog.Debug("Closing ACE session", "sessionHandle", fmt.Sprintf("%p", sessionHandle))
 		err := errForStatus(C.aceBT_closeSession(sessionHandle))
 		if err != nil {
 			slog.Error("Failed to close ACE session", "sessionHandle", fmt.Sprintf("%p", sessionHandle), "error", err)
 			sessionHandle = nil
 		} else {
-			slog.Info("Closed ACE session", "sessionHandle", fmt.Sprintf("%p", sessionHandle))
+			slog.Debug("Closed ACE session", "sessionHandle", fmt.Sprintf("%p", sessionHandle))
 			sessionHandle = nil
 		}
 	}
@@ -281,8 +291,6 @@ func (a *aceAdapter) IsBonded(addr address.Address) (bool, error) {
 	}
 	defer C.aceBT_freeDeviceList((*C.aceBT_deviceList_t)(unsafe.Pointer(deviceList)))
 
-	slog.Debug("Bonded", "num_devices", deviceList.num_devices)
-
 	cgoDeviceList := C.cgo_getDeviceList(deviceList)
 	bondedDevices := unsafe.Slice(cgoDeviceList.p_devices, cgoDeviceList.num_devices)
 
@@ -292,25 +300,19 @@ func (a *aceAdapter) IsBonded(addr address.Address) (bool, error) {
 			slog.Debug("Found bonded device", "address", addr.ToString())
 			return true, nil
 		}
-		slog.Debug("Device bonded but not recognized", "address", NewAddressFromAce(device).ToString())
 	}
 	return false, nil
 }
 
-func UUIDFromACEUUIDLE(aceUUID C.aceBT_uuid_t) uuid.UUID {
-	ret := make([]byte, 16)
-	for i := range 16 {
-		ret[i] = byte(aceUUID.uu[15-i])
-	}
-	return uuid.Must(uuid.FromBytes(ret))
+type pairingResult struct {
+	Address address.Address
+	Err     error
 }
-
-type aceAdapter struct{}
 
 func (a *aceAdapter) Pair(addr address.Address) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	pairCh := make(chan struct{})
+	pairCh = make(chan pairingResult)
 
 	status := C.aceBT_pair(AddressToAce(addr), C.ACEBT_TRANSPORT_AUTO)
 	if status == C.ACEBT_STATUS_DONE {
@@ -322,15 +324,22 @@ func (a *aceAdapter) Pair(addr address.Address) error {
 		return fmt.Errorf("failed to pair device %s: %w", addr.ToString(), err)
 	}
 
-	select {
-	case <-pairCh:
-		slog.Info("Paired with device", "address", addr.ToString())
-	case <-ctx.Done():
-		slog.Error("Timed out waiting for pairing", "address", addr.ToString())
-		return fmt.Errorf("timed out waiting for pairing with device %s", addr.ToString())
+	for {
+		select {
+		case result := <-pairCh:
+			if result.Address == addr {
+				if result.Err != nil {
+					slog.Warn("device pairing finished", "address", addr.ToString(), "success", false, "error", result.Err)
+					return result.Err
+				}
+				return nil
+			}
+			slog.Info("paired with unexpected device", "address", addr.ToString(), "error", result.Err)
+		case <-ctx.Done():
+			slog.Error("Timed out waiting for pairing", "address", addr.ToString())
+			return fmt.Errorf("timed out waiting for pairing with device %s", addr.ToString())
+		}
 	}
-
-	return nil
 }
 
 var _ Adapter = (*aceAdapter)(nil)
@@ -497,7 +506,6 @@ func (a *aceAdapter) PairIfNeeded(addr address.Address) error {
 		slog.Info("Ensuring paired", "address", addr.ToString())
 		err := adapter.Pair(addr)
 		if err != nil {
-			slog.Error("Failed to pair with device", "error", err)
 			return err
 		}
 		slog.Info("Device paired successfully", "address", addr.ToString())
@@ -625,7 +633,17 @@ func (a *aceAdapter) register() error {
 		return errors.New("timed out waiting for beacon client registration")
 	}
 
-	slog.Debug("Registered ACE callbacks: BLE, beacon, GATTC", "sessionHandle", fmt.Sprintf("%p", sessionHandle))
+	bleStatus = C.aceBT_registerClientCallbacks(
+		sessionHandle,
+		&C.client_callbacks,
+	)
+	err = errForStatus(bleStatus)
+	if err != nil {
+		slog.Error("Failed to register client callbacks", "status", bleStatus, "error", err)
+		return err
+	}
+
+	slog.Debug("Registered ACE callbacks: BLE, beacon, GATTC, Security", "sessionHandle", fmt.Sprintf("%p", sessionHandle))
 
 	return nil
 }
@@ -755,14 +773,16 @@ const (
 
 //export onBondStateChanged
 func onBondStateChanged(status C.aceBT_status_t, remoteAddr *C.aceBT_bdAddr_t, state C.aceBT_bondState_t) {
+	var addr address.Address
 	var addrStr string
 	if remoteAddr != nil {
-		addrStr = NewAddressFromAce(*remoteAddr).ToString()
+		addr = NewAddressFromAce(*remoteAddr)
+		addrStr = addr.ToString()
 	} else {
 		addrStr = "<null>"
 	}
 
-	slog.Info("Bond state changed",
+	slog.Debug("Bond state changed",
 		"status", status,
 		"remote_address", addrStr,
 		"bond_state", state,
@@ -771,17 +791,19 @@ func onBondStateChanged(status C.aceBT_status_t, remoteAddr *C.aceBT_bdAddr_t, s
 		slog.Info("Already bonded", "address", addrStr, "bond_state", state, "status", status)
 	}
 	if status != C.ACEBT_STATUS_SUCCESS {
-		slog.Error("Non-success status on bond state change?", "address", addrStr, "bond_state", state, "status", status, "status_str", StatusFromCode(status))
+		slog.Error("Bond failed", "address", addrStr, "bond_state", state, "status", status, "status_str", StatusFromCode(status))
+		if pairCh != nil {
+			pairCh <- pairingResult{Address: addr, Err: errForStatus(status)}
+		}
 		return
 	}
 	switch state {
 	case C.ACEBT_BOND_STATE_BONDED:
 		slog.Info("Bonded successfully", "address", addrStr, "bond_state", state, "status", status)
+		// this process might be waiting for its own request to finish,
+		// or it may have been triggered by an external event
 		if pairCh != nil {
-			slog.Debug("closing pairCh")
-			close(pairCh)
-		} else {
-			slog.Warn("pairCh is nil, cannot close channel")
+			pairCh <- pairingResult{Address: addr, Err: nil}
 		}
 	case C.ACEBT_BOND_STATE_NONE:
 		slog.Info("Not bonded", "address", addrStr, "bond_state", state, "status", status)

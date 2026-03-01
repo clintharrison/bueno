@@ -17,14 +17,34 @@ aceBT_beaconCallbacks_t beacon_callbacks = {
     .onclientRegistered = onBeaconClientRegistered,
 };
 
+aceBT_callbacks_t client_callbacks = {.size = sizeof(aceBT_callbacks_t),
+    .common_cbs =
+        {
+            .size = sizeof(aceBT_commonCallbacks_t),
+            .adapter_state_cb = onAdapterStateChanged,
+            // Only register for this once: the BLE callbacks do it.
+            .bond_state_cb = NULL,
+            .bond_state_cb = NULL,
+            .acl_state_changed_cb = NULL,
+        },
+    .classic_cbs = {
+        .adapter_discovery_state_cb = NULL,
+        .adapter_scanmode_cb = NULL,
+        .conn_state_cb = NULL,
+        .device_discovered_cb = NULL,
+        .profile_state_cb = NULL,
+        .audio_state_cb = NULL,
+    }};
+
 aceBT_bleCallbacks_t ble_callbacks = {
     .size = sizeof(aceBT_bleCallbacks_t),
-    .common_cbs = {
-        .size = sizeof(aceBT_commonCallbacks_t),
-        .adapter_state_cb = onAdapterStateChanged,
-        .bond_state_cb = onBondStateChanged,
-        .acl_state_changed_cb = NULL,
-    },
+    .common_cbs =
+        {
+            .size = sizeof(aceBT_commonCallbacks_t),
+            .adapter_state_cb = onAdapterStateChanged,
+            .bond_state_cb = onBondStateChanged,
+            .acl_state_changed_cb = NULL,
+        },
     .ble_registered_cb = onBleRegistered,
     .connection_state_change_cb = onBleConnectionStateChanged,
 };
@@ -53,10 +73,8 @@ aceBT_bleGattClientCallbacks_t ble_gatt_client_callbacks = {
 
 // Exists to work around cgo deficiencies with struct layout: aceBT_deviceList_t
 // doesn't correctly expose p_devices with cgo and packed structs.
-cgo_deviceList cgo_getDeviceList(aceBT_deviceList_t *device_list)
-{
-    if (device_list == NULL || device_list->num_devices == 0)
-    {
+cgo_deviceList cgo_getDeviceList(aceBT_deviceList_t *device_list) {
+    if (device_list == NULL || device_list->num_devices == 0) {
         return (cgo_deviceList){};
     }
     cgo_deviceList list = {
@@ -66,55 +84,44 @@ cgo_deviceList cgo_getDeviceList(aceBT_deviceList_t *device_list)
     return list;
 }
 
-void cgo_getUUIDFromGATTCharRecord(aceBT_bleGattCharacteristicsValue_t *char_val, uint8_t uuid[16])
-{
-    if (char_val == NULL || uuid == NULL)
-    {
+void cgo_getUUIDFromGATTCharRecord(aceBT_bleGattCharacteristicsValue_t *char_val, uint8_t uuid[16]) {
+    if (char_val == NULL || uuid == NULL) {
         return;
     }
     // Copy the UUID from the GATT characteristic record to the output buffer
     memcpy(uuid, char_val->gattRecord.uuid.uu, 16);
 }
 
-void cgo_getRecordFromChar(aceBT_bleGattCharacteristicsValue_t *char_val, aceBT_bleGattRecord_t *record)
-{
-    if (char_val == NULL || record == NULL)
-    {
+void cgo_getRecordFromChar(aceBT_bleGattCharacteristicsValue_t *char_val, aceBT_bleGattRecord_t *record) {
+    if (char_val == NULL || record == NULL) {
         return;
     }
     memcpy(record, &char_val->gattRecord, sizeof(aceBT_bleGattRecord_t));
 }
 
-void cgo_getDescriptorFromChar(aceBT_bleGattCharacteristicsValue_t *char_val, aceBT_bleGattDescriptor_t *desc)
-{
-    if (char_val == NULL || desc == NULL)
-    {
+void cgo_getDescriptorFromChar(aceBT_bleGattCharacteristicsValue_t *char_val, aceBT_bleGattDescriptor_t *desc) {
+    if (char_val == NULL || desc == NULL) {
         return;
     }
     memcpy(desc, &char_val->gattDescriptor, sizeof(aceBT_bleGattDescriptor_t));
-    // fprintf(stderr, "XXX: is_notify=%d is_set=%d write_type=%d\n", desc->is_notify, desc->is_set, desc->write_type);
+    // fprintf(stderr, "XXX: is_notify=%d is_set=%d write_type=%d\n",
+    // desc->is_notify, desc->is_set, desc->write_type);
 }
 
 ace_status_t cgo_bleWriteCharacteristics(aceBT_sessionHandle session_handle, aceBT_bleConnHandle conn_handle,
-    aceBT_bleGattCharacteristicsValue_t *chars_value, aceBT_responseType_t request_type,
-    uint8_t *data, size_t data_len)
-{
-    if (session_handle == NULL || conn_handle == NULL || chars_value == NULL || data == NULL)
-    {
-        if (session_handle == NULL)
-        {
+    aceBT_bleGattCharacteristicsValue_t *chars_value, aceBT_responseType_t request_type, uint8_t *data,
+    size_t data_len) {
+    if (session_handle == NULL || conn_handle == NULL || chars_value == NULL || data == NULL) {
+        if (session_handle == NULL) {
             fprintf(stderr, "cgo_bleWriteCharacteristics: session_handle is NULL\n");
         }
-        if (conn_handle == NULL)
-        {
+        if (conn_handle == NULL) {
             fprintf(stderr, "cgo_bleWriteCharacteristics: conn_handle is NULL\n");
         }
-        if (chars_value == NULL)
-        {
+        if (chars_value == NULL) {
             fprintf(stderr, "cgo_bleWriteCharacteristics: chars_value is NULL\n");
         }
-        if (data == NULL)
-        {
+        if (data == NULL) {
             fprintf(stderr, "cgo_bleWriteCharacteristics: data is NULL\n");
         }
         return ACE_STATUS_BAD_PARAM;
@@ -124,18 +131,17 @@ ace_status_t cgo_bleWriteCharacteristics(aceBT_sessionHandle session_handle, ace
     chars_value->blobValue.offset = 0;
     chars_value->blobValue.size = data_len;
     chars_value->blobValue.data = malloc(data_len);
-    if (chars_value->blobValue.data == NULL)
-    {
+    if (chars_value->blobValue.data == NULL) {
         fprintf(stderr, "cgo_bleWriteCharacteristics: malloc failed, %p\n", chars_value->blobValue.data);
         return ACE_STATUS_OUT_OF_MEMORY;
     }
     memcpy(chars_value->blobValue.data, data, data_len);
-    // fprintf(stderr, "XXXXX: session_handle=%p conn_handle=%p chars_value=%p request_type=%d data=%p data_len=%zu\n",
+    // fprintf(stderr, "XXXXX: session_handle=%p conn_handle=%p chars_value=%p
+    // request_type=%d data=%p data_len=%zu\n",
     //     session_handle, conn_handle, chars_value,
     //     request_type, data, data_len);
     // fprintf(stderr, "XXXXX: data = ");
-    for (int i = 0; i < data_len && i < 20; i++)
-    {
+    for (int i = 0; i < data_len && i < 20; i++) {
         fprintf(stderr, "%02x ", chars_value->blobValue.data[i]);
     }
     fprintf(stderr, "\n");
@@ -145,26 +151,17 @@ ace_status_t cgo_bleWriteCharacteristics(aceBT_sessionHandle session_handle, ace
     return status;
 }
 
-ace_status_t cgo_bleSetNotification(
-    aceBT_sessionHandle session_handle,
-    aceBT_bleConnHandle conn_handle,
-    aceBT_bleGattCharacteristicsValue_t *chars_value,
-    bool is_enabled
-) {
-    return aceBT_bleSetNotification(
-        session_handle, conn_handle, *chars_value, is_enabled
-    );
+ace_status_t cgo_bleSetNotification(aceBT_sessionHandle session_handle, aceBT_bleConnHandle conn_handle,
+    aceBT_bleGattCharacteristicsValue_t *chars_value, bool is_enabled) {
+    return aceBT_bleSetNotification(session_handle, conn_handle, *chars_value, is_enabled);
 }
 
-
-void printUuid(const aceBT_uuid_t *uuid)
-{
-    fprintf(stderr, "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%"
-                    "02x%02x%02x",
-            uuid->uu[15], uuid->uu[14], uuid->uu[13], uuid->uu[12], uuid->uu[11],
-            uuid->uu[10], uuid->uu[9], uuid->uu[8], uuid->uu[7], uuid->uu[6],
-            uuid->uu[5], uuid->uu[4], uuid->uu[3], uuid->uu[2], uuid->uu[1],
-            uuid->uu[0]);
+void printUuid(const aceBT_uuid_t *uuid) {
+    fprintf(stderr,
+        "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%"
+        "02x%02x%02x",
+        uuid->uu[15], uuid->uu[14], uuid->uu[13], uuid->uu[12], uuid->uu[11], uuid->uu[10], uuid->uu[9], uuid->uu[8],
+        uuid->uu[7], uuid->uu[6], uuid->uu[5], uuid->uu[4], uuid->uu[3], uuid->uu[2], uuid->uu[1], uuid->uu[0]);
 }
 
 cgo_charsValueData getDataFromCharsValue(aceBT_bleGattCharacteristicsValue_t *value) {
@@ -206,48 +203,33 @@ void dumpCharValue(aceBT_bleGattCharacteristicsValue_t *value) {
     }
 }
 
-
-void cgo_dumpChar(aceBT_bleGattsService_t *service)
-{
-    if (service == NULL)
-    {
+void cgo_dumpChar(aceBT_bleGattsService_t *service) {
+    if (service == NULL) {
         return;
     }
 
     int char_count = 0;
-    for (struct aceBT_gattCharRec_t *char_rec = service->charsList.stqh_first;
-         char_rec != NULL;
-         char_rec = char_rec->link.stqe_next)
-    {
-
-        if (char_rec->value.gattDescriptor.is_notify && char_rec->value.gattDescriptor.is_set)
-        {
-            fprintf(stderr, "\tGatt Characteristics with Notifications %d uuid ",
-                    char_count++);
+    for (struct aceBT_gattCharRec_t *char_rec = service->charsList.stqh_first; char_rec != NULL;
+        char_rec = char_rec->link.stqe_next) {
+        if (char_rec->value.gattDescriptor.is_notify && char_rec->value.gattDescriptor.is_set) {
+            fprintf(stderr, "\tGatt Characteristics with Notifications %d uuid ", char_count++);
             printUuid(&char_rec->value.gattRecord.uuid);
             fprintf(stderr, "\n");
-        }
-        else
-        {
+        } else {
             fprintf(stderr, "\tGatt Characteristics %d uuid ", char_count++);
             printUuid(&char_rec->value.gattRecord.uuid);
             fprintf(stderr, "\n");
         }
 
-        if (char_rec->value.gattDescriptor.is_set)
-        {
+        if (char_rec->value.gattDescriptor.is_set) {
             fprintf(stderr, "\t\tDescriptor UUID ");
             printUuid(&char_rec->value.gattDescriptor.gattRecord.uuid);
             fprintf(stderr, "\n");
-        }
-        else if (char_rec->value.multiDescCount)
-        {
+        } else if (char_rec->value.multiDescCount) {
             uint8_t desc_num = 1;
             struct aceBT_gattDescRec_t *desc_rec = NULL;
-            for (desc_rec = char_rec->value.descList.stqh_first;
-                 desc_rec != NULL;
-                 desc_rec = desc_rec->link.stqe_next)
-            {
+            for (desc_rec = char_rec->value.descList.stqh_first; desc_rec != NULL;
+                desc_rec = desc_rec->link.stqe_next) {
                 fprintf(stderr, "\t\tDescriptor %d UUID %s", desc_num++);
                 printUuid(&desc_rec->value.gattRecord.uuid);
                 fprintf(stderr, "\n");
@@ -256,47 +238,33 @@ void cgo_dumpChar(aceBT_bleGattsService_t *service)
     }
 }
 
-void cgo_dumpChars(aceBT_bleGattsService_t *service)
-{
-    if (service == NULL)
-    {
+void cgo_dumpChars(aceBT_bleGattsService_t *service) {
+    if (service == NULL) {
         return;
     }
 
     int char_count = 0;
-    for (struct aceBT_gattCharRec_t *char_rec = service->charsList.stqh_first;
-         char_rec != NULL;
-         char_rec = char_rec->link.stqe_next)
-    {
-
-        if (char_rec->value.gattDescriptor.is_notify && char_rec->value.gattDescriptor.is_set)
-        {
-            fprintf(stderr, "\tGatt Characteristics with Notifications %d uuid ",
-                    char_count++);
+    for (struct aceBT_gattCharRec_t *char_rec = service->charsList.stqh_first; char_rec != NULL;
+        char_rec = char_rec->link.stqe_next) {
+        if (char_rec->value.gattDescriptor.is_notify && char_rec->value.gattDescriptor.is_set) {
+            fprintf(stderr, "\tGatt Characteristics with Notifications %d uuid ", char_count++);
             printUuid(&char_rec->value.gattRecord.uuid);
             fprintf(stderr, "\n");
-        }
-        else
-        {
+        } else {
             fprintf(stderr, "\tGatt Characteristics %d uuid ", char_count++);
             printUuid(&char_rec->value.gattRecord.uuid);
             fprintf(stderr, "\n");
         }
 
-        if (char_rec->value.gattDescriptor.is_set)
-        {
+        if (char_rec->value.gattDescriptor.is_set) {
             fprintf(stderr, "\t\tDescriptor UUID ");
             printUuid(&char_rec->value.gattDescriptor.gattRecord.uuid);
             fprintf(stderr, "\n");
-        }
-        else if (char_rec->value.multiDescCount)
-        {
+        } else if (char_rec->value.multiDescCount) {
             uint8_t desc_num = 1;
             struct aceBT_gattDescRec_t *desc_rec = NULL;
-            for (desc_rec = char_rec->value.descList.stqh_first;
-                 desc_rec != NULL;
-                 desc_rec = desc_rec->link.stqe_next)
-            {
+            for (desc_rec = char_rec->value.descList.stqh_first; desc_rec != NULL;
+                desc_rec = desc_rec->link.stqe_next) {
                 fprintf(stderr, "\t\tDescriptor %d UUID %s", desc_num++);
                 printUuid(&desc_rec->value.gattRecord.uuid);
                 fprintf(stderr, "\n");
