@@ -8,7 +8,6 @@ import (
 	"os"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/lmittmann/tint"
@@ -19,38 +18,11 @@ import (
 	"github.com/clintharrison/bueno/xkb"
 )
 
-const (
-	BluetoothUID = 1003
-	BluetoothGID = 1003
-)
-
 func must[T any](v T, err error) T {
 	if err != nil {
 		panic(err)
 	}
 	return v
-}
-
-// dropPrivileges sets the process's user and group ID to the Bluetooth user and group
-// ACE will not allow the process to run as root.
-func dropPrivileges() {
-	if os.Geteuid() == 0 {
-		err := syscall.Setgid(BluetoothGID)
-		if err != nil {
-			slog.Error("Failed to set GID", "error", err)
-			os.Exit(1)
-		}
-
-		err = syscall.Setuid(BluetoothUID)
-		if err != nil {
-			slog.Error("Failed to set UID", "error", err)
-			os.Exit(1)
-		}
-	}
-
-	uid := syscall.Getuid()
-	gid := syscall.Getgid()
-	slog.Info("running as nonroot user", "uid", uid, "gid", gid)
 }
 
 // configureLogger sets up the default structured logger to use tint on stderr
@@ -124,7 +96,7 @@ func main() {
 	}
 	defer x11.Close()
 
-	dropPrivileges()
+	ace.DropPrivileges()
 
 	slog.Info("Go Version", "version", runtime.Version(), "hostname", must(os.Hostname()))
 

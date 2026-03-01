@@ -11,9 +11,11 @@ import (
 	"fmt"
 	"iter"
 	"log/slog"
+	"os"
 	"runtime"
 	"slices"
 	"sync"
+	"syscall"
 	"time"
 	"unsafe"
 
@@ -47,6 +49,33 @@ var (
 	charsWriteCh        chan struct{}
 	bleWriteDescCh      chan struct{}
 )
+
+const (
+	BluetoothUID = 1003
+	BluetoothGID = 1003
+)
+
+// DropPrivileges sets the process's user and group ID to the Bluetooth user and group
+// ACE will not allow the process to run as root.
+func DropPrivileges() {
+	if os.Geteuid() == 0 {
+		err := syscall.Setgid(BluetoothGID)
+		if err != nil {
+			slog.Error("Failed to set GID", "error", err)
+			os.Exit(1)
+		}
+
+		err = syscall.Setuid(BluetoothUID)
+		if err != nil {
+			slog.Error("Failed to set UID", "error", err)
+			os.Exit(1)
+		}
+	}
+
+	uid := syscall.Getuid()
+	gid := syscall.Getgid()
+	slog.Info("running as nonroot user", "uid", uid, "gid", gid)
+}
 
 type ConnHandle struct {
 	conn C.aceBT_bleConnHandle
