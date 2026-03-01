@@ -32,25 +32,14 @@ type Device struct {
 	bindings  map[string]string
 }
 
-func normalizeKeyName(key string) string {
-	key = strings.TrimPrefix(key, "KEY_")
-	key = strings.TrimPrefix(key, "BTN_")
-	key = strings.ToUpper(key)
-	return key
+func isSpecificName(key string) bool {
+	return strings.HasPrefix(key, "KEY_") || strings.HasPrefix(key, "BTN_")
 }
 
 func (d *Device) BindingForKey(keyName string) string {
 	// key may be several names separated by /
 	keys := strings.Split(keyName, "/")
-	nk := make([]string, 0, len(keys))
-	for _, k := range keys {
-		k = normalizeKeyName(k)
-		if k != "" {
-			nk = append(nk, k)
-		}
-	}
-	for _, key := range nk {
-		key = normalizeKeyName(key)
+	for _, key := range keys {
 		if val, ok := d.bindings[key]; ok {
 			return val
 		}
@@ -80,6 +69,10 @@ func (d *Device) NamePattern() *regexp.Regexp {
 
 func (d *Device) Address() address.Address {
 	return d.address
+}
+
+func (d *Device) Dump() string {
+	return fmt.Sprintf("Device{name_regex=%q, address=%q, bindings=%v}", d.nameRegex.String(), d.address.ToString(), d.bindings)
 }
 
 type Config struct {
@@ -121,14 +114,19 @@ func Load() (*Config, error) {
 	for _, d := range yamlCfg.Devices {
 		bindings := make(map[string]string, len(d.Bind))
 		for k, v := range d.Bind {
-			// TODO: validate these keys exist on this device?
-
-			// Hopefully you don't have KEY_B and BTN_B on the same device :)
-			key := normalizeKeyName(k)
-			if _, exists := bindings[key]; exists {
-				return nil, fmt.Errorf("duplicate binding for key %q", key)
+			if isSpecificName(k) {
+				// Keep the original name if it has a KEY_ prefix to disambiguate from BTN_.
+				if err := addToBindings(bindings, k, v); err != nil {
+					return nil, fmt.Errorf("error in device %q binding for key %q: %w", d.Name, k, err)
+				}
+			} else {
+				if err := addToBindings(bindings, "BTN_"+k, v); err != nil {
+					return nil, fmt.Errorf("error in device %q binding for key %q: %w", d.Name, "BTN_"+k, err)
+				}
+				if err := addToBindings(bindings, "KEY_"+k, v); err != nil {
+					return nil, fmt.Errorf("error in device %q binding for key %q: %w", d.Name, "KEY_"+k, err)
+				}
 			}
-			bindings[key] = v
 		}
 		dev, err := newDevice(d.Name, d.Addr, bindings)
 		if err != nil {
@@ -142,11 +140,43 @@ func Load() (*Config, error) {
 	return &cfg, nil
 }
 
-func (c *Config) MatchingDevice(devName string) *Device {
+func addToBindings(bindings map[string]string, key string, action string) error {
+	key = strings.ToUpper(key)
+	if _, exists := bindings[key]; exists {
+		return fmt.Errorf("duplicate binding for key %q", key)
+	}
+	bindings[key] = action
+	return nil
+}
+
+func (c *Config) FirstMatchingDevice(devName string) *Device {
 	for _, d := range c.Devices {
 		if d.NamePattern().MatchString(devName) {
 			return &d
 		}
 	}
 	return nil
+}
+
+func (c *Config) MergedMatchingDevice(devName string) *Device {
+	var merged *Device
+	for _, d := range c.Devices {
+		if d.NamePattern().MatchString(devName) {
+			if merged == nil {
+				merged = &Device{
+					nameRegex: d.nameRegex,
+					address:   d.address,
+					bindings:  make(map[string]string),
+				}
+			}
+			for k, v := range d.bindings {
+				if existing, exists := merged.bindings[k]; exists && existing != v {
+					slog.Warn("conflicting bindings for key on merged device config, using first one", "key", k, "existing_value", existing, "new_value", v)
+					continue
+				}
+				merged.bindings[k] = v
+			}
+		}
+	}
+	return merged
 }

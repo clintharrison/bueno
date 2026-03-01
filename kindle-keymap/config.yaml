@@ -1,11 +1,12 @@
 device:
-  - name: "(?i)^8BitDo.*gamepad Keyboard$"
+  - name: "(?i)^8BitDo.*gamepad$"
     mac: e4:17:d8:0a:b0:0c
     bind:
       PageUp: prev_page
       PageDown: next_page
       G: next_page # A button
-      J: next_page # B button
+      # you can also disambiguate between KEY_B and BTN_B if you want
+      KEY_J: next_page # B button
       H: prev_page # X button
       I: prev_page # Y button
 
@@ -25,7 +26,7 @@ device:
       PageUp: prev_page
       PageDown: next_page
       A: next_page
-      B: next_page
+      BTN_B: next_page
       X: prev_page
       Y: prev_page
       Start: brightness_up
