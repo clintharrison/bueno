@@ -7,16 +7,16 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"regexp"
 	"slices"
 	"time"
 
+	"github.com/clintharrison/bueno/ace/address"
 	"github.com/holoplot/go-evdev"
 	"github.com/pilebones/go-udev/netlink"
 )
 
 type InputDeviceWatcher struct {
-	Patterns   []*regexp.Regexp
+	Devices    []address.Address
 	AddFunc    func(dev *evdev.InputDevice)
 	RemoveFunc func(uevent netlink.UEvent)
 }
@@ -110,18 +110,25 @@ func (w *InputDeviceWatcher) handleEvent(uevent netlink.UEvent) {
 			return
 		}
 
-		if len(w.Patterns) > 0 {
-			if name, err := dev.Name(); err == nil {
-				matched := slices.ContainsFunc(w.Patterns, func(pattern *regexp.Regexp) bool {
-					return pattern.MatchString(name)
-				})
-				if !matched {
-					slog.Debug("ignoring device not matching patterns", "devname", name, "path", dev.Path())
-					dev.Close()
-					return
-				}
-			} else {
-				slog.Error("dev.Name()", "path", dev.Path(), "error", err)
+		if len(w.Devices) > 0 {
+			uniq, err := dev.UniqueID()
+			if err != nil {
+				slog.Warn("dev.UniqueID()", "path", devPath, "error", err)
+				dev.Close()
+				return
+			}
+			addr, err := address.NewFromStringReverse(uniq)
+			if err != nil {
+				slog.Warn("address.NewFromStringReverse()", "path", devPath, "unique_id", uniq, "error", err)
+				dev.Close()
+				return
+			}
+
+			matched := slices.ContainsFunc(w.Devices, func(device address.Address) bool {
+				return device == addr
+			})
+			if !matched {
+				slog.Debug("ignoring device not matching patterns", "addr", addr.ToString(), "path", dev.Path())
 				dev.Close()
 				return
 			}

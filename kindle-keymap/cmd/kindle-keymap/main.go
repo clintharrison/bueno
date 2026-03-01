@@ -6,12 +6,12 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"regexp"
 	"syscall"
 
 	"github.com/holoplot/go-evdev"
 	"github.com/pilebones/go-udev/netlink"
 
+	"github.com/clintharrison/bueno/ace/address"
 	"github.com/clintharrison/bueno/core/log"
 	"github.com/clintharrison/bueno/kindle-keymap/config"
 	"github.com/clintharrison/bueno/kindle-keymap/install"
@@ -28,29 +28,34 @@ func findExistingDevice(devices []config.Device) (*evdev.InputDevice, *config.De
 		return nil, nil, err
 	}
 
-	var cfgDev *config.Device
-	devPath := ""
 	for _, d := range devicePaths {
+		dev, err := evdev.Open(d.Path)
+		if err != nil {
+			slog.Warn("evdev.Open() failed, skipping device", "name", d.Name, "path", d.Path, "error", err)
+			continue
+			// if we can't open the device, we can't check its unique ID, so we skip it
+		}
+		uniqueID, err := dev.UniqueID()
+		if err != nil {
+			slog.Warn("dev.UniqueID() failed, skipping device", "name", d.Name, "path", d.Path, "error", err)
+			dev.Close()
+			continue
+		}
+
+		addr, err := address.NewFromStringReverse(uniqueID)
+		if err != nil {
+			slog.Warn("address.NewFromStringReverse() failed, skipping device", "name", d.Name, "path", d.Path, "unique_id", uniqueID, "error", err)
+			dev.Close()
+			continue
+		}
+
 		for _, cd := range devices {
-			if cd.NamePattern().MatchString(d.Name) {
-				cfgDev = &cd
-				break
+			if cd.Address() == addr {
+				slog.Info("found existing device matching config", "name", d.Name, "path", d.Path, "unique_id", uniqueID, "addr", addr.ToString(), "cfg", cd.Dump())
+				return dev, &cd, nil
 			}
 		}
-		if cfgDev != nil {
-			slog.Info("found device", "name", d.Name, "path", d.Path)
-			devPath = d.Path
-			break
-		}
 	}
-	if devPath != "" {
-		dev, err := evdev.Open(devPath)
-		if err != nil {
-			return nil, cfgDev, err
-		}
-		return dev, cfgDev, nil
-	}
-
 	return nil, nil, fmt.Errorf("no input device found matching given patterns")
 }
 
@@ -58,12 +63,12 @@ func startDeviceWatcher(ctx context.Context, cfg *config.Config) chan *evdev.Inp
 	// here we set up a udev watcher to look for _new_ input devices matching the given pattern
 	// we also check any existing devices, and start watching them too
 	deviceCh := make(chan *evdev.InputDevice)
-	patterns := make([]*regexp.Regexp, 0, len(cfg.Devices))
+	devices := make([]address.Address, 0, len(cfg.Devices))
 	for _, d := range cfg.Devices {
-		patterns = append(patterns, d.NamePattern())
+		devices = append(devices, d.Address())
 	}
 	idw := &udev.InputDeviceWatcher{
-		Patterns: patterns,
+		Devices: devices,
 		AddFunc: func(dev *evdev.InputDevice) {
 			if devName, err := dev.Name(); err == nil {
 				slog.Info("new input device detected", "devname", devName, "path", dev.Path())
@@ -123,7 +128,7 @@ func runKeymapLoop(ctx context.Context, cfg *config.Config) error {
 	deviceFound := false
 	if dev, matchedCfg, err := findExistingDevice(cfg.Devices); err == nil {
 		if devName, err := dev.Name(); err == nil {
-			slog.Info("using existing input device", "devname", devName, "path", dev.Path(), "pattern", matchedCfg.NamePattern().String())
+			slog.Info("using existing input device", "devname", devName, "path", dev.Path(), "pattern", matchedCfg.Address().ToString())
 			deviceFound = true
 			go func() { deviceCh <- dev }()
 		}
@@ -145,19 +150,29 @@ func runKeymapLoop(ctx context.Context, cfg *config.Config) error {
 			slog.Info("shutting down")
 			return nil
 		case dev := <-deviceCh:
-			slog.Debug("got new device")
-			n, err := dev.Name()
+			devName, err := dev.Name()
 			if err != nil {
-				// if we got here, presumably the device's name matched.
-				// but it doesn't hurt to check again
 				slog.Error("dev.Name()", "error", err)
 				dev.Close()
 				continue
 			}
-			cfg := cfg.MergedMatchingDevice(n)
+			uniqueID, err := dev.UniqueID()
+			if err != nil {
+				slog.Error("dev.UniqueID()", "error", err, "devname", devName, "path", dev.Path())
+				dev.Close()
+				continue
+			}
+			addr, err := address.NewFromStringReverse(uniqueID)
+			if err != nil {
+				slog.Error("address.NewFromStringReverse()", "error", err, "devname", devName, "path", dev.Path(), "unique_id", uniqueID)
+				dev.Close()
+				continue
+			}
+			slog.Debug("got new device", "name", devName, "path", dev.Path(), "error", err, "addr", addr.ToString())
+			cfg := cfg.FirstMatchingDevice(addr)
 			slog.Debug("using config", "cfg", cfg.Dump())
 			if cfg == nil {
-				slog.Error("no config found matching device name", "devname", n, "path", dev.Path())
+				slog.Error("no config found matching device name", "devname", devName, "path", dev.Path())
 				dev.Close()
 				continue
 			}

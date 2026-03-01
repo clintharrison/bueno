@@ -66,10 +66,11 @@ func runPairProcessInner(ctx context.Context, cfg *config.Config) error {
 	// a fiddly connection here.
 	for _, device := range cfg.Devices {
 		go func() {
-			devName := device.NamePattern().String()
-			slog.Info("trying to connect", "device", devName)
-			if err := adapter.PairIfNeeded(device.Address()); err != nil {
-				slog.Error("failed to pair with device", "error", err, "device", devName)
+			addr := device.Address()
+			addrStr := addr.ToString()
+			slog.Info("trying to connect", "device", addrStr)
+			if err := adapter.PairIfNeeded(addr); err != nil {
+				slog.Error("failed to pair with device", "error", err, "device", addrStr)
 			} else {
 				deviceFoundChan <- device.Address()
 			}

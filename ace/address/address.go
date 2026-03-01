@@ -40,6 +40,18 @@ func NewFromString(addr string) (Address, error) {
 	return Address{Bytes: address}, nil
 }
 
+func NewFromStringReverse(addr string) (Address, error) {
+	a, err := NewFromString(addr)
+	if err != nil {
+		return Address{}, err
+	}
+	reversed := [6]byte{}
+	for i := 0; i < 6; i++ {
+		reversed[i] = a.Bytes[5-i]
+	}
+	return Address{Bytes: reversed}, nil
+}
+
 func (a Address) ToString() string {
 	return fmt.Sprintf("%02x:%02x:%02x:%02x:%02x:%02x",
 		a.Bytes[0], a.Bytes[1], a.Bytes[2],

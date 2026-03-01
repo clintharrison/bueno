@@ -6,7 +6,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"regexp"
 	"strings"
 
 	"github.com/clintharrison/bueno/ace/address"
@@ -27,9 +26,8 @@ type yamlDevice struct {
 }
 
 type Device struct {
-	nameRegex *regexp.Regexp
-	address   address.Address
-	bindings  map[string]string
+	address  address.Address
+	bindings map[string]string
 }
 
 func isSpecificName(key string) bool {
@@ -47,24 +45,15 @@ func (d *Device) BindingForKey(keyName string) string {
 	return ""
 }
 
-func newDevice(name string, addr string, bindings map[string]string) (*Device, error) {
-	re, err := regexp.Compile(name)
-	if err != nil {
-		return nil, fmt.Errorf("invalid device name regex %q: %w", name, err)
-	}
+func newDevice(addr string, bindings map[string]string) (*Device, error) {
 	mac, err := address.NewFromString(addr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid device address %q: %w", addr, err)
 	}
 	return &Device{
-		nameRegex: re,
-		address:   mac,
-		bindings:  bindings,
+		address:  mac,
+		bindings: bindings,
 	}, nil
-}
-
-func (d *Device) NamePattern() *regexp.Regexp {
-	return d.nameRegex
 }
 
 func (d *Device) Address() address.Address {
@@ -72,7 +61,7 @@ func (d *Device) Address() address.Address {
 }
 
 func (d *Device) Dump() string {
-	return fmt.Sprintf("Device{name_regex=%q, address=%q, bindings=%v}", d.nameRegex.String(), d.address.ToString(), d.bindings)
+	return fmt.Sprintf("Device{address=%q, bindings=%v}", d.address.ToString(), d.bindings)
 }
 
 type Config struct {
@@ -128,7 +117,7 @@ func Load() (*Config, error) {
 				}
 			}
 		}
-		dev, err := newDevice(d.Name, d.Addr, bindings)
+		dev, err := newDevice(d.Addr, bindings)
 		if err != nil {
 			return nil, err
 		}
@@ -149,34 +138,11 @@ func addToBindings(bindings map[string]string, key string, action string) error 
 	return nil
 }
 
-func (c *Config) FirstMatchingDevice(devName string) *Device {
+func (c *Config) FirstMatchingDevice(addr address.Address) *Device {
 	for _, d := range c.Devices {
-		if d.NamePattern().MatchString(devName) {
+		if addr == d.Address() {
 			return &d
 		}
 	}
 	return nil
-}
-
-func (c *Config) MergedMatchingDevice(devName string) *Device {
-	var merged *Device
-	for _, d := range c.Devices {
-		if d.NamePattern().MatchString(devName) {
-			if merged == nil {
-				merged = &Device{
-					nameRegex: d.nameRegex,
-					address:   d.address,
-					bindings:  make(map[string]string),
-				}
-			}
-			for k, v := range d.bindings {
-				if existing, exists := merged.bindings[k]; exists && existing != v {
-					slog.Warn("conflicting bindings for key on merged device config, using first one", "key", k, "existing_value", existing, "new_value", v)
-					continue
-				}
-				merged.bindings[k] = v
-			}
-		}
-	}
-	return merged
 }
