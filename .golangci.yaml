@@ -1,0 +1,68 @@
+version: "2"
+run:
+  build-tags:
+    - "-gtk2"
+linters:
+  default: all
+  disable:
+    ### Noisy/false positives:
+    - depguard
+    - funlen
+    - gomoddirectives
+    - nlreturn
+    - prealloc
+    - testpackage
+    # noisy whitespace
+    - wsl
+    - wsl_v5
+
+    ### Style choices:
+    # I like the pattern of dynamic error messages, sorry :(
+    - err113
+    # TODO comments are the bug tracker
+    - godox
+    # I've never liked these kinds of rules. Split up a function based on vibes!
+    - cyclop
+    - gocognit
+
+    ### These should be eventually fixed:
+    - varnamelen
+    - forbidigo # needs a user-facing "logs" package, then remove fmt.Print*
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+  settings:
+    mnd:
+      ignored-numbers:
+        - "2"
+        - "3"
+        - "0o777"
+        - "0o755"
+    errcheck:
+      exclude-functions:
+        - "kpkg.Close"
+        - "(*os.File).Close"
+        - "(archive/tar.TarWriter).Close"
+    exhaustruct:
+      exclude:
+        - '.+/cobra\.Command$'
+        - '.+/cobra\.CompletionOptions$'
+        - '.+/tint\.Options$'
+    gosec:
+      excludes:
+        - G104 # errcheck instead
+    wrapcheck:
+      extra-ignore-sigs:
+        - .AddStack(
+        - .Annotate(
+        - .Annotatef(
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+    - goimports
+  exclusions:
+    generated: lax
