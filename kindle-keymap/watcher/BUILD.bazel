@@ -1,0 +1,15 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "watcher",
+    srcs = ["watcher.go"],
+    importpath = "github.com/clintharrison/bueno/kindle-keymap/watcher",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//kindle-keymap/actions",
+        "//kindle-keymap/config",
+        "//kindle-keymap/lipcaction",
+        "//xkb",
+        "@com_github_holoplot_go_evdev//:go-evdev",
+    ],
+)

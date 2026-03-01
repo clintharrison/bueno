@@ -152,6 +152,7 @@ type Adapter interface {
 	Connect(addr address.Address) (ConnHandle, error)
 	Disconnect(ConnHandle) error
 	Pair(addr address.Address) error
+	PairIfNeeded(addr address.Address) error
 	IsBonded(addr address.Address) (bool, error)
 	Close()
 	GetCharacteristics(svc *DeviceService) ([]DeviceCharacteristic, error)
@@ -526,7 +527,7 @@ func (a *aceAdapter) Disconnect(conn ConnHandle) error {
 	return nil
 }
 
-func bondIfNeeded(ctx context.Context, adapter Adapter, addr address.Address) error {
+func (a *aceAdapter) PairIfNeeded(addr address.Address) error {
 	slog.Info("Checking if already bonded", "address", addr.ToString())
 	bonded, err := adapter.IsBonded(addr)
 	if err != nil {
@@ -547,7 +548,7 @@ func bondIfNeeded(ctx context.Context, adapter Adapter, addr address.Address) er
 }
 
 func (a *aceAdapter) Connect(addr address.Address) (ConnHandle, error) {
-	// TODO: call bondIfNeeded()
+	// TODO: call PairIfNeeded()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var connHandle ConnHandle

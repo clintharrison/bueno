@@ -2,127 +2,24 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"os/signal"
 	"regexp"
 	"syscall"
-	"time"
 
 	"github.com/holoplot/go-evdev"
 	"github.com/pilebones/go-udev/netlink"
 
 	"github.com/clintharrison/bueno/core/log"
 	"github.com/clintharrison/bueno/kindle-keymap/config"
+	"github.com/clintharrison/bueno/kindle-keymap/install"
 	"github.com/clintharrison/bueno/kindle-keymap/lipcaction"
+	"github.com/clintharrison/bueno/kindle-keymap/watcher"
 	"github.com/clintharrison/bueno/udev"
 	"github.com/clintharrison/bueno/xkb"
 )
-
-const (
-	ActionNextPage        string = "next_page"
-	ActionPrevPage        string = "prev_page"
-	ActionBrightnessUp    string = "brightness_up"
-	ActionBrightnessDown  string = "brightness_down"
-	ActionWarmthUp        string = "warmth_up"
-	ActionWarmthDown      string = "warmth_down"
-	ActionRotateCW        string = "rotate_cw"
-	ActionRotateCCW       string = "rotate_ccw"
-	ActionOrientLockUp    string = "orientation_lock_up"
-	ActionOrientLockDown  string = "orientation_lock_down"
-	ActionOrientLockLeft  string = "orientation_lock_left"
-	ActionOrientLockRight string = "orientation_lock_right"
-)
-
-const (
-	udevRulePath = "/etc/udev/rules.d/99-kindle-keymap.rules"
-	udevRuleBody = `KERNEL=="uhid", MODE="0660", GROUP="bluetooth"
-
-ACTION=="add", SUBSYSTEM=="input", IMPORT+="/usr/local/bin/dev_is_keyboard.sh %N"
-`
-	devIsKeyboardScriptPath = "/usr/local/bin/dev_is_keyboard.sh"
-	devIsKeyboardScriptBody = `#!/bin/sh
-DEVICE=$1
-if evtest info $DEVICE | grep -q 'Event type 1 (Key)'; then
-  if evtest info $DEVICE | grep -q 'Event code 16 (Q)'; then
-    # Don't set these just because Key is supported -- that will
-    # detect the touchscreen as a keyboard which breaks the UI
-    echo ID_INPUT=1
-    echo ID_INPUT_KEY=1
-    echo ID_INPUT_KEYBOARD=1
-  fi
-fi
-`
-)
-
-func maybeInstallUdevRule(ctx context.Context) error {
-	// do we need to mntroot rw?
-	scriptExists := false
-	ruleExists := false
-
-	if _, err := os.Stat(devIsKeyboardScriptPath); err == nil {
-		scriptExists = true
-	}
-	if _, err := os.Stat(udevRulePath); err == nil {
-		ruleExists = true
-	}
-
-	if scriptExists && ruleExists {
-		slog.Debug("udev rule and script already installed")
-		return nil
-	}
-
-	slog.Info("running 'mntroot rw'")
-	cmd := exec.CommandContext(ctx, "/usr/sbin/mntroot", "rw")
-	err := cmd.Run()
-	if err != nil {
-		return err
-	}
-
-	defer func() {
-		cmd := exec.Command("/usr/sbin/mntroot", "ro")
-		if err := cmd.Run(); err != nil {
-			slog.Error("failed to remount rootfs as read-only", "error", err)
-		}
-	}()
-
-	if !scriptExists {
-		slog.Info("installing dev_is_keyboard.sh script", "path", devIsKeyboardScriptPath)
-		err := os.WriteFile(devIsKeyboardScriptPath, []byte(devIsKeyboardScriptBody), 0755)
-		if err != nil {
-			return err
-		}
-	}
-
-	if !ruleExists {
-		slog.Info("installing udev rule", "path", udevRulePath)
-		err := os.WriteFile(udevRulePath, []byte(udevRuleBody), 0644)
-		if err != nil {
-			return err
-		}
-	}
-
-	// if either of these were missing, we also need to reload udev rules and trigger
-	// if this doesn't work, :shrug: reboot time
-	slog.Info("reloading udev rules")
-	cmd = exec.CommandContext(ctx, "udevadm", "control", "--reload-rules")
-	err = cmd.Run()
-	if err != nil {
-		return err
-	}
-
-	slog.Info("triggering udev")
-	cmd = exec.CommandContext(ctx, "udevadm", "trigger")
-	err = cmd.Run()
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
 
 func findExistingDevice(devices []config.Device) (*evdev.InputDevice, *config.Device, error) {
 	devicePaths, err := evdev.ListDevicePaths()
@@ -157,32 +54,7 @@ func findExistingDevice(devices []config.Device) (*evdev.InputDevice, *config.De
 	return nil, nil, fmt.Errorf("no input device found matching given patterns")
 }
 
-func main() {
-	ctx := context.Background()
-	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
-
-	log.ConfigureInteractiveLogger()
-
-	err := maybeInstallUdevRule(ctx)
-	if err != nil {
-		slog.Error("maybeInstallUdev()", "error", err)
-		os.Exit(1)
-	}
-
-	x11, err := xkb.Open()
-	if err != nil {
-		slog.Error("xkb.Open()", "error", err)
-		os.Exit(1)
-	}
-	defer x11.Close()
-
-	cfg, err := config.Load()
-	if err != nil {
-		slog.Error("config.Load()", "error", err)
-		os.Exit(1)
-	}
-
+func startDeviceWatcher(ctx context.Context, cfg *config.Config) chan *evdev.InputDevice {
 	// here we set up a udev watcher to look for _new_ input devices matching the given pattern
 	// we also check any existing devices, and start watching them too
 	deviceCh := make(chan *evdev.InputDevice)
@@ -216,33 +88,62 @@ func main() {
 	}
 	go idw.Start(ctx)
 	go func() {
-		if dev, matchedCfg, err := findExistingDevice(cfg.Devices); err == nil {
-			if devName, err := dev.Name(); err == nil {
-				slog.Info("using existing input device", "devname", devName, "path", dev.Path(), "pattern", matchedCfg.NamePattern().String())
-				deviceCh <- dev
-			}
-		}
 	}()
+	return deviceCh
+}
+
+func runKeymapLoop(ctx context.Context, cfg *config.Config) error {
+	err := install.MaybeInstallUdevRule(ctx)
+	if err != nil {
+		slog.Error("maybeInstallUdev()", "error", err)
+		os.Exit(1)
+	}
+
+	x11, err := xkb.Open()
+	if err != nil {
+		slog.Error("xkb.Open()", "error", err)
+		return err
+	}
+	defer x11.Close()
 
 	client, err := lipcaction.NewLipcClient()
 	if err != nil {
 		slog.Error("lipcaction.NewLipcClient()", "error", err)
-		os.Exit(1)
+		return err
 	}
 	defer client.Close()
 	brightness := lipcaction.NewBrightnessAction(client)
 	rotation := lipcaction.NewRotationAction(client)
 
-	w := watcher{x11, brightness, rotation}
+	w := watcher.New(x11, brightness, rotation)
+
+	// kick off the background device watcher
+	deviceCh := startDeviceWatcher(ctx, cfg)
+	// "catch up" on any existing devices that match the pattern
+	deviceFound := false
+	if dev, matchedCfg, err := findExistingDevice(cfg.Devices); err == nil {
+		if devName, err := dev.Name(); err == nil {
+			slog.Info("using existing input device", "devname", devName, "path", dev.Path(), "pattern", matchedCfg.NamePattern().String())
+			deviceFound = true
+			go func() { deviceCh <- dev }()
+		}
+	}
+
+	pairCancelCtx, pairCancel := context.WithCancel(ctx)
+	defer pairCancel()
+	// if we didn't find any existing devices, kick off the process to run pairing
+	if !deviceFound {
+		slog.Info("no existing devices found, starting Bluetooth pairing process")
+		go runSelfAsPairingProcess(pairCancelCtx)
+	}
 
 	// now we wait for devices to show up, and then watch their events in a separate goroutine
-	// (a device may "show up" from the existing devices check above, or from udev)
 	for {
 		slog.Debug("waiting for device...")
 		select {
 		case <-ctx.Done():
-			slog.Info("bye bye!")
-			return
+			slog.Info("shutting down")
+			return nil
 		case dev := <-deviceCh:
 			slog.Debug("got new device")
 			n, err := dev.Name()
@@ -253,176 +154,44 @@ func main() {
 				dev.Close()
 				continue
 			}
-			cfg := cfg.MatchingDevice(n)
+			cfg := cfg.MergedMatchingDevice(n)
+			slog.Debug("using config", "cfg", cfg.Dump())
 			if cfg == nil {
 				slog.Error("no config found matching device name", "devname", n, "path", dev.Path())
 				dev.Close()
 				continue
 			}
-			go w.watch(ctx, dev, cfg)
+			// now that we found a device, cancel the process looking for devices to pair
+			pairCancel()
+			go w.Watch(ctx, dev, cfg)
 		}
 	}
 }
 
-type watcher struct {
-	x11        *xkb.X11
-	brightness *lipcaction.BrightnessAction
-	rotation   *lipcaction.RotationAction
-}
+func main() {
+	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
 
-const eventHandlerTimeout = 5 * time.Second
+	log.ConfigureInteractiveLogger()
 
-func (w *watcher) watch(ctx context.Context, dev *evdev.InputDevice, cfg *config.Device) {
-	defer dev.Close()
-	devName, _ := dev.Name()
-	slog.Info("watching device for key events", "devname", devName, "path", dev.Path())
-
-	absInfos, err := dev.AbsInfos()
+	cfg, err := config.Load()
 	if err != nil {
-		slog.Warn("dev.AbsInfos() failed", "devname", devName, "path", dev.Path(), "error", err)
+		slog.Error("config.Load()", "error", err)
+		os.Exit(1)
 	}
 
-	for {
-		select {
-		case <-ctx.Done():
-			slog.Info("stopping watch on device", "devname", devName, "path", dev.Path())
-			return
-		default:
-			ev, err := dev.ReadOne()
-			if err != nil {
-				// it's normal for bluetooth devices to disconnect - don't log it as an error
-				if errors.Is(err, syscall.ENODEV) {
-					slog.Info("assuming device is disconnected - stopping watch", "devname", devName, "path", dev.Path(), "error", err)
-					return
-				}
-				slog.Error("unexpected read error on device, stopping watch", "devname", devName, "path", dev.Path(), "error", err)
-				return
-			}
-			eventCtx, cancel := context.WithTimeout(ctx, eventHandlerTimeout)
-			defer cancel()
-			w.handleEvent(eventCtx, ev, cfg, absInfos)
+	// If this env var is set, we're in the subprocess expected to scan, pair, and exit.
+	if os.Getenv("KINDLE_KEYMAP_RUN_BLUETOOTH_PAIR") == "1" {
+		if err := runPairProcessInner(ctx, cfg); err != nil {
+			slog.Error("runPairProcessInner()", "error", err)
+			os.Exit(1)
 		}
-	}
-}
-
-func syntheticKeyEventForAbsEvent(ev *evdev.InputEvent, absInfos map[evdev.EvCode]evdev.AbsInfo) (*evdev.InputEvent, error) {
-	if ev == nil || ev.Type != evdev.EV_ABS || absInfos == nil {
-		return nil, nil
-	}
-	absInfo, ok := absInfos[ev.Code]
-	if !ok {
-		return nil, nil
-	}
-	if absInfo.Minimum == 0 && absInfo.Maximum == 0 {
-		// this axis doesn't have a range, so we can't interpret it
-		return nil, nil
+		os.Exit(0)
 	}
 
-	newEvent := &evdev.InputEvent{
-		Time: ev.Time,
-		Type: evdev.EV_KEY,
-		// treat it as a key press, since we don't get key release events for ABS
-		Value: 1,
-		Code:  0,
-	}
-	// D-pad on 8bitdo shows ABS_X 127 at rest, 0 when left pressed, 255 when right pressed
-	// and ABS_Y 127 at rest, 0 when up pressed, 255 when down pressed
-	// Since we only get events when the value changes, we
-	switch ev.Code {
-	case evdev.ABS_X:
-		switch ev.Value {
-		case absInfo.Minimum:
-			newEvent.Code = evdev.BTN_DPAD_LEFT
-		case absInfo.Maximum:
-			newEvent.Code = evdev.BTN_DPAD_RIGHT
-		}
-	case evdev.ABS_Y:
-		switch ev.Value {
-		case absInfo.Minimum:
-			newEvent.Code = evdev.BTN_DPAD_UP
-		case absInfo.Maximum:
-			newEvent.Code = evdev.BTN_DPAD_DOWN
-		}
-	}
-
-	if newEvent.Code != 0 {
-		return newEvent, nil
-	}
-
-	// if we didn't remap the event, that's not an error
-	return nil, nil
-}
-
-func (w *watcher) handleEvent(ctx context.Context, ev *evdev.InputEvent, cfg *config.Device, absInfos map[evdev.EvCode]evdev.AbsInfo) {
-	// TODO: handle watcher vs device vs event state better
-	if ev == nil {
-		return
-	}
-
-	// 8bitdo gamepad sends EV_ABS events for the D-pad, so we'll remap those to equivalent KEY_* events
-	// we don't keep state, so keys are never released
-	syntheticEv, err := syntheticKeyEventForAbsEvent(ev, absInfos)
-	if err != nil {
-		slog.Error("syntheticKeyEventForAbsEvent()", "error", err)
-		return
-	} else if syntheticEv != nil {
-		ev = syntheticEv
-	}
-
-	if ev.Type == evdev.EV_KEY && ev.Value == 1 { // Key press event
-		keyName := ev.CodeName()
-		mappedAction := cfg.BindingForKey(keyName)
-		if mappedAction == "" {
-			mappedAction = "<unmapped>"
-		}
-		slog.Info("key pressed", "code", ev.Code, "name", keyName, "mapped_action", mappedAction)
-		switch mappedAction {
-		case ActionNextPage:
-			w.x11.KeyPress(xkb.XKPageDown)
-		case ActionPrevPage:
-			w.x11.KeyPress(xkb.XKPageUp)
-		case ActionBrightnessUp:
-			if err := w.brightness.IncreaseBrightness(ctx); err != nil {
-				slog.Error("IncreaseBrightness()", "error", err)
-			}
-		case ActionBrightnessDown:
-			if err := w.brightness.DecreaseBrightness(ctx); err != nil {
-				slog.Error("DecreaseBrightness()", "error", err)
-			}
-		case ActionWarmthUp:
-			if err := w.brightness.IncreaseWarmth(ctx); err != nil {
-				slog.Error("IncreaseWarmth()", "error", err)
-			}
-		case ActionWarmthDown:
-			if err := w.brightness.DecreaseWarmth(ctx); err != nil {
-				slog.Error("DecreaseWarmth()", "error", err)
-			}
-		case ActionRotateCW:
-			if err := w.rotation.Rotate(ctx, lipcaction.RotationClockwise); err != nil {
-				slog.Error("Rotate()", "error", err)
-			}
-		case ActionRotateCCW:
-			if err := w.rotation.Rotate(ctx, lipcaction.RotationCounterclockwise); err != nil {
-				slog.Error("Rotate()", "error", err)
-			}
-		case ActionOrientLockUp:
-			if err := w.rotation.SetOrientationLock(ctx, lipcaction.OrientationPortrait); err != nil {
-				slog.Error("SetOrientationLock()", "error", err)
-			}
-		case ActionOrientLockDown:
-			if err := w.rotation.SetOrientationLock(ctx, lipcaction.OrientationPortraitInverted); err != nil {
-				slog.Error("SetOrientationLock()", "error", err)
-			}
-		case ActionOrientLockLeft:
-			if err := w.rotation.SetOrientationLock(ctx, lipcaction.OrientationLandscapeLeft); err != nil {
-				slog.Error("SetOrientationLock()", "error", err)
-			}
-		case ActionOrientLockRight:
-			if err := w.rotation.SetOrientationLock(ctx, lipcaction.OrientationLandscapeRight); err != nil {
-				slog.Error("SetOrientationLock()", "error", err)
-			}
-		default:
-			// ignore unmapped keys
-		}
+	if err := runKeymapLoop(ctx, cfg); err != nil {
+		slog.Error("error in one of the main goroutines", "error", err)
+		os.Exit(1)
 	}
 }

@@ -1,5 +1,6 @@
 device:
   - name: "(?i)^8BitDo.*gamepad Keyboard$"
+    mac: e4:17:d8:0a:b0:0c
     bind:
       PageUp: prev_page
       PageDown: next_page
@@ -19,6 +20,7 @@ device:
       R: warmth_up # R2
 
   - name: "(?i)^8BitDo.*gamepad$"
+    mac: e4:17:d8:33:22:11
     bind:
       PageUp: prev_page
       PageDown: next_page

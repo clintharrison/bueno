@@ -2,13 +2,20 @@ load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_cross_binary", "go_libra
 
 go_library(
     name = "kindle-keymap_lib",
-    srcs = ["main.go"],
+    srcs = [
+        "main.go",
+        "pairing.go",
+    ],
     importpath = "github.com/clintharrison/bueno/kindle-keymap/cmd/kindle-keymap",
     visibility = ["//visibility:private"],
     deps = [
+        "//ace",
+        "//ace/address",
         "//core/log",
         "//kindle-keymap/config",
+        "//kindle-keymap/install",
         "//kindle-keymap/lipcaction",
+        "//kindle-keymap/watcher",
         "//udev",
         "//xkb",
         "@com_github_holoplot_go_evdev//:go-evdev",

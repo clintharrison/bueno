@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/clintharrison/bueno/ace/address"
 	"gopkg.in/yaml.v3"
 )
 
@@ -21,11 +22,13 @@ type yamlConfig struct {
 
 type yamlDevice struct {
 	Name string            `yaml:"name"`
+	Addr string            `yaml:"mac,omitempty"`
 	Bind map[string]string `yaml:"bind"`
 }
 
 type Device struct {
 	nameRegex *regexp.Regexp
+	address   address.Address
 	bindings  map[string]string
 }
 
@@ -55,19 +58,28 @@ func (d *Device) BindingForKey(keyName string) string {
 	return ""
 }
 
-func newDevice(name string, bindings map[string]string) (*Device, error) {
+func newDevice(name string, addr string, bindings map[string]string) (*Device, error) {
 	re, err := regexp.Compile(name)
 	if err != nil {
 		return nil, fmt.Errorf("invalid device name regex %q: %w", name, err)
 	}
+	mac, err := address.NewFromString(addr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid device address %q: %w", addr, err)
+	}
 	return &Device{
 		nameRegex: re,
+		address:   mac,
 		bindings:  bindings,
 	}, nil
 }
 
 func (d *Device) NamePattern() *regexp.Regexp {
 	return d.nameRegex
+}
+
+func (d *Device) Address() address.Address {
+	return d.address
 }
 
 type Config struct {
@@ -118,7 +130,7 @@ func Load() (*Config, error) {
 			}
 			bindings[key] = v
 		}
-		dev, err := newDevice(d.Name, bindings)
+		dev, err := newDevice(d.Name, d.Addr, bindings)
 		if err != nil {
 			return nil, err
 		}

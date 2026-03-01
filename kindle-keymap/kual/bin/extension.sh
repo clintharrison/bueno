@@ -20,9 +20,14 @@ start_if_not_running() {
 	nohup /mnt/us/extensions/kindle-keymap/bin/kindle-keymap >>/tmp/kindle-keymap.log 2>&1 &
 }
 
+run_pairing() {
+	KINDLE_KEYMAP_RUN_BLUETOOTH_PAIR=1 nohup /mnt/us/extensions/kindle-keymap/bin/kindle-keymap \
+		>>/tmp/kindle-keymap.log 2>&1 &
+}
+
 case "$1" in
 check-status)
-	if pgrep -f "kindle-keymap" >/dev/null; then
+	if pgrep "kindle-keymap" >/dev/null; then
 		show_eink_log "kindle-keymap is running      "
 	else
 		show_eink_log "kindle-keymap is not running  "
@@ -32,11 +37,11 @@ start)
 	show_eink_log "starting kindle-keymap...     "
 	start_if_not_running
 	;;
+run-pair)
+	run_pairing
+	;;
 stop)
 	show_eink_log "stopping kindle-keymap...     "
 	stop
-	;;
-reload-menu)
-	kual_menu_reload
 	;;
 esac

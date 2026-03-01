@@ -25,6 +25,13 @@
                     "params": "stop",
                     "exitmenu": false,
                     "refresh": false
+                },
+                {
+                    "name": "Pair with configured devices",
+                    "action": "bin/extension.sh",
+                    "params": "run-pair",
+                    "exitmenu": false,
+                    "refresh": false
                 }
             ]
         }
