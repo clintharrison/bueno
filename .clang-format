@@ -1,0 +1,8 @@
+---
+Language: C
+BasedOnStyle: Google
+IndentWidth: 4
+BreakAfterReturnType: Automatic
+PointerAlignment: Right
+ColumnLimit: 120
+AlignAfterOpenBracket: DontAlign
