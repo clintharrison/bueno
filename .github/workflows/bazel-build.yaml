@@ -1,0 +1,55 @@
+name: bazel-build
+on:
+  - push
+  - pull_request
+permissions:
+  contents: read
+
+jobs:
+  build-all:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Bazel
+        uses: bazel-contrib/setup-bazel@0.18.0
+        if: ${{ !env.ACT }}
+        with:
+          # Avoid downloading Bazel every time.
+          bazelisk-cache: true
+          # Store build cache per workflow.
+          disk-cache: ${{ github.workflow }}
+          # Share repository cache between workflows.
+          repository-cache: true
+
+      - name: Install x11 headers
+        run: sudo apt install -y libx11-dev
+
+      - name: Setup Bazel
+        if: ${{ env.ACT }}
+        run: |
+          wget -q https://github.com/bazelbuild/bazelisk/releases/download/v1.28.1/bazelisk-linux-amd64 -O $RUNNER_TOOL_CACHE/bazelisk
+          chmod +x $RUNNER_TOOL_CACHE/bazelisk
+
+      - name: Build
+        run: |
+          PATH=$RUNNER_TOOL_CACHE:$PATH bazelisk build --config=ci //...
+
+      - name: Upload
+        uses: actions/upload-artifact@v6
+        with:
+          name: kindle-keymap-kual.tar
+          path: bazel-bin/kindle-keymap/kual/kindle-keymap.tar
+
+  # golangci:
+  #   name: lint
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v5
+  #     - uses: actions/setup-go@v6
+  #       with:
+  #         go-version: stable
+  #     - name: golangci-lint
+  #       uses: golangci/golangci-lint-action@v8
+  #       with:
+  #         version: v2.5
