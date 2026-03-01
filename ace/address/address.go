@@ -21,6 +21,11 @@ func NewFromString(addr string) (Address, error) {
 		if len(parts) != 6 {
 			return Address{}, errInvalidAddress(addr)
 		}
+	} else if len(addr) == 17 && strings.Contains(addr, "-") {
+		parts = strings.Split(addr, "-")
+		if len(parts) != 6 {
+			return Address{}, errInvalidAddress(addr)
+		}
 	} else if len(addr) == 12 && !strings.Contains(addr, ":") {
 		for i := range 6 {
 			parts[i] = addr[i*2 : i*2+2]
