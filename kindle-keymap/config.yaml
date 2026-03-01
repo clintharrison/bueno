@@ -2,8 +2,6 @@ device:
   # 8BitDo in Keyboard mode
   - mac: e4:17:d8:0a:b0:0c
     bind:
-      PageUp: prev_page
-      PageDown: next_page
       G: next_page # A button
       # you can also disambiguate between KEY_B and BTN_B if you want
       KEY_J: next_page # B button
@@ -23,8 +21,6 @@ device:
   # 8BitDo in D-pad mode
   - mac: e4:17:d8:33:22:11
     bind:
-      PageUp: prev_page
-      PageDown: next_page
       A: next_page
       BTN_B: next_page
       X: prev_page
@@ -36,3 +32,27 @@ device:
       # D pad
       DPad_Up: rotate_ccw
       DPad_Down: rotate_cw
+
+  # Switch pro controller?
+  - mac: 28-cf-51-12-34-56
+    bind:
+      BTN_B: next_page # A
+      BTN_A: next_page # B
+      BTN_C: prev_page # Y
+      BTN_X: prev_page # X
+
+      BTN_MODE: warmth_up # home
+      BTN_THUMBL: warmth_down # screenshot
+
+      BTN_TL2: brightness_down # minus
+      BTN_TR2: brightness_up # plus
+
+      DPad_Up: rotate_ccw
+      DPad_Left: rotate_ccw
+      DPad_Down: rotate_cw
+      DPad_Right: rotate_cw
+
+      # BTN_Z: _ # R
+      # BTN_Y: _ # L
+      # BTN_TR: _ # R2
+      # BTN_TL: _ # L2
