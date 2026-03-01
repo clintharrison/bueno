@@ -22,10 +22,6 @@ type InputDeviceWatcher struct {
 	RemoveFunc func(uevent netlink.UEvent)
 }
 
-func ptrTo[T any](v T) *T {
-	return &v
-}
-
 func (w *InputDeviceWatcher) Start(ctx context.Context) {
 	conn := netlink.UEventConn{}
 	err := conn.Connect(netlink.KernelEvent)
@@ -41,13 +37,13 @@ func (w *InputDeviceWatcher) Start(ctx context.Context) {
 	rules := &netlink.RuleDefinitions{}
 
 	rules.AddRule(netlink.RuleDefinition{
-		Action: ptrTo("add"),
+		Action: new("add"),
 		Env: map[string]string{
 			"SUBSYSTEM": "input",
 		},
 	})
 	rules.AddRule(netlink.RuleDefinition{
-		Action: ptrTo("remove"),
+		Action: new("remove"),
 		Env: map[string]string{
 			"SUBSYSTEM": "input",
 		},
